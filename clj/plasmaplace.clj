@@ -1,4 +1,5 @@
-(ns plasmaplace)
+(ns plasmaplace
+  (:require [clojure.stacktrace]))
 
 (def ^:const escape-prefix
   "The escape prefix: `<Esc> ] 5 1 ;`"
@@ -17,8 +18,28 @@
                escape-suffix)]
    (.write *out* s)))
 
-(defmacro doc [sym]
-  `(let [s# (with-out-str (clojure.repl/doc ~sym))]
-    (vim-call "scratch" (pr-str s#))))
+(defmacro capture-stack [form]
+  `(try
+    ~form
+    (catch Exception e#
+      (vim-call "scratch"
+                (pr-str
+                 (with-out-str
+                  (clojure.stacktrace/print-stack-trace e#)))))))
+
+(defmacro Doc [sym]
+  `(capture-stack
+    (let [s# (with-out-str (clojure.repl/doc ~sym))]
+      (vim-call "scratch" (pr-str s#)))))
+
+(defn Require [namespace- reload-level]
+  (capture-stack
+   (let [s (with-out-str (clojure.core/require namespace- reload-level))
+         cmd (str "(plasmaplace/Require "
+                  namespace-
+                  " "
+                  reload-level
+                  ")\n")]
+     (vim-call "scratch" (pr-str (str cmd s))))))
 
 (vim-call "scratch" (pr-str "Clojure REPL loaded. Have fun!"))
