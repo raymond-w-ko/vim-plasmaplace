@@ -36,7 +36,8 @@
 
 (defn Require [namespace- reload-level]
   (try
-   (let [s (with-out-str (+ 1 1))
+   (let [s (with-out-str #?(:clj (clojure.core/require namespace- reload-level)
+                            :cljs "TODO"))
          cmd (str "(plasmaplace/Require "
                   namespace-
                   " "
