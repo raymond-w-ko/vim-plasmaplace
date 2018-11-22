@@ -190,8 +190,7 @@ function! s:create_or_get_repl() abort
     wincmd c
   endif
 
-  let clj_path = resolve(s:script_path . "/../clj/plasmaplace.cljc")
-  let code = join(readfile(s:script_path . "/../clj/plasmaplace.cljc"))
+  let code = join(readfile(s:script_path . "/../cljc/plasmaplace.cljc"))
   call s:to_repl(repl_buf, code)
 
   let scratch = s:create_or_get_scratch(project_key)
