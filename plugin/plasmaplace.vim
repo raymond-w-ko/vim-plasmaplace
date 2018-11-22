@@ -13,7 +13,7 @@ if !exists("g:plasmaplace_use_vertical_split")
   let g:plasmaplace_use_vertical_split = 1
 endif
 if !exists("g:plasmaplace_hide_repl_after_create")
-  let g:plasmaplace_hide_repl_after_create = 1
+  let g:plasmaplace_hide_repl_after_create = 0
 endif
 if !exists("g:plasmaplace_repl_split_wincmd")
   let g:plasmaplace_repl_split_wincmd = "L"
@@ -40,15 +40,28 @@ let s:repl_to_scratch = {}
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 " gets the project path of the current buffer
+function! s:get_project_type(path)
+  if filereadable(a:path . "/project.clj")
+    return "normal"
+  endif
+  if filereadable(a:path . "/deps.edn")
+    return "normal"
+  endif
+  if filereadable(a:path . "/shadow-cljs.edn")
+    return "shadow"
+  endif
+  return 0
+endfunction
 function! s:get_project_path() abort
   let path = expand("%:p:h")
   let prev_path = path
   while 1
-    if filereadable(path."/project.clj") || filereadable(path."./deps.edn")
+    let project_type = s:get_project_type(path)
+    if type(project_type) == v:t_string
       break
     endif
     let prev_path = path
-    let path = fnamemodify(path, ":h") 
+    let path = fnamemodify(path, ":h")
     if path == prev_path
       throw "plasmaplace: could not determine project directory"
     endif
@@ -66,7 +79,7 @@ function! s:get_project_key() abort
 
   let project_path = s:get_project_path()
   let tokens = reverse(split(project_path, '\v:|\/|\\'))
-  let project_key = join(tokens, "_") 
+  let project_key = join(tokens, "_")
   let s:file_path_to_project_key[path] = project_key
   return project_key
 endfunction
@@ -136,7 +149,7 @@ function! s:create_or_get_scratch(project_key) abort
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufline(bnum, 1, "Loading Clojure REPL...")
-  nnoremap <buffer> q :q<CR> 
+  nnoremap <buffer> q :q<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum
   return bnum
 endfunction
@@ -156,6 +169,7 @@ function! s:create_or_get_repl() abort
   endif
 
   let project_dir = s:get_project_path()
+  let project_type = s:get_project_type(project_dir)
   let options = {
       \ "term_name": project_key,
       \ "cwd": project_dir,
@@ -164,7 +178,11 @@ function! s:create_or_get_repl() abort
       \ "stoponexit": "term",
       \ "norestore": 1,
       \ }
-  let repl_buf = term_start("lein repl", options)
+  if project_type == "shadow"
+    let repl_buf = term_start("npx shadow-cljs cljs-repl app", options)
+  else
+    let repl_buf = term_start("lein repl", options)
+  endif
   exe "wincmd " . g:plasmaplace_repl_split_wincmd
   let s:repl_jobs[project_key] = repl_buf
 
@@ -172,8 +190,9 @@ function! s:create_or_get_repl() abort
     wincmd c
   endif
 
-  let clj_path = resolve(s:script_path . "/../clj/plasmaplace.clj")
-  call s:to_repl(repl_buf, '(load-file "' . clj_path . '")')
+  let clj_path = resolve(s:script_path . "/../clj/plasmaplace.cljc")
+  let code = join(readfile(s:script_path . "/../clj/plasmaplace.cljc"))
+  call s:to_repl(repl_buf, code)
 
   let scratch = s:create_or_get_scratch(project_key)
   let s:repl_to_scratch[repl_buf] = scratch
@@ -192,7 +211,7 @@ function! g:Tapi_plasmaplace_scratch(bufnum, s) abort
   let current_win = winnr()
   let scratch = s:repl_to_scratch[a:bufnum]
   let info = getbufinfo(scratch)[0]
-  let windows = info["windows"] 
+  let windows = info["windows"]
   if len(windows) > 0
     let winnr = windows[0]
     exe win_id2tabwin(winnr)[1] . "wincmd w"
@@ -218,7 +237,10 @@ function! s:Require(bang, echo, ns) abort
   let ns = a:ns
 
   let repl_buf = s:create_or_get_repl()
-  if ext ==# 'cljs'
+  if ext ==# "cljs"
+    let code_file_path = tr(a:ns ==# "" ? plasmaplace#ns() : a:ns, '-.', '_/') . '.cljs'
+    let cmd = printf("(load-file %s)", s:str(code_file_path))
+    call s:to_repl(repl_buf, cmd)
   else
     if ns ==# ""
       let ns = plasmaplace#ns()
@@ -247,8 +269,9 @@ endfunction
 function! s:K() abort
   let repl_buf = s:create_or_get_repl()
   call s:to_repl(
-      \ repl_buf, 
-      \ printf('(plasmaplace/Doc %s)', "ns"))
+      \ repl_buf,
+      \ printf('(plasmaplace/Doc (with-out-str (clojure.repl/doc %s)))',
+      \ "ns"))
   return 'echom ' . string(repl_buf)
 endfunction
 
