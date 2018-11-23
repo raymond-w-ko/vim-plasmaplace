@@ -13,7 +13,7 @@ if !exists("g:plasmaplace_use_vertical_split")
   let g:plasmaplace_use_vertical_split = 1
 endif
 if !exists("g:plasmaplace_hide_repl_after_create")
-  let g:plasmaplace_hide_repl_after_create = 0
+  let g:plasmaplace_hide_repl_after_create = 1
 endif
 if !exists("g:plasmaplace_repl_split_wincmd")
   let g:plasmaplace_repl_split_wincmd = "L"
@@ -34,6 +34,7 @@ let s:repl_jobs = {}
 let s:repl_scratch_buffers = {}
 let s:repl_to_project_key = {}
 let s:repl_to_scratch = {}
+let s:repl_to_scratch_pending_output = {}
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " utils
@@ -150,8 +151,18 @@ function! s:create_or_get_scratch(project_key) abort
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufline(bnum, 1, "Loading Clojure REPL...")
   nnoremap <buffer> q :q<CR>
+  nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum
+  wincmd p
   return bnum
+endfunction
+
+" load plasmaplace Clojure code
+function! s:loaded_plasmaplace_clojure_code(repl_buf) abort
+  let code = readfile(s:script_path . "/../cljc/plasmaplace.cljc")
+  let code = map(code, {i, line -> trim(line)})
+  let code = join(code)
+  call s:to_repl(a:repl_buf, code)
 endfunction
 
 " create or get the buffer number that represents the REPL
@@ -190,13 +201,89 @@ function! s:create_or_get_repl() abort
     wincmd c
   endif
 
-  let code = join(readfile(s:script_path . "/../cljc/plasmaplace.cljc"))
-  call s:to_repl(repl_buf, code)
+  call s:loaded_plasmaplace_clojure_code(repl_buf)
 
   let scratch = s:create_or_get_scratch(project_key)
   let s:repl_to_scratch[repl_buf] = scratch
+  let s:repl_to_scratch_pending_output[repl_buf] = []
   let s:repl_to_project_key[repl_buf] = project_key
   return repl_buf
+endfunction
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" operator
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+function! s:EvalMotion(type, ...) abort
+  let sel_save = &selection
+  let &selection = "inclusive"
+  let reg_save = @@
+
+  if a:0  " Invoked from Visual mode, use gv command.
+    silent exe "normal! gvy"
+  elseif a:type == 'line'
+    silent exe "normal! '[V']y"
+  else
+    silent exe "normal! `[v`]y"
+  endif
+
+  let repl_buf = s:create_or_get_repl()
+  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
+  call extend(pending_output, split(@@, "\n"))
+  call add(pending_output, "")
+  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (with-out-str %s))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
+  call s:to_repl(repl_buf, cmd)
+
+  let &selection = sel_save
+  let @@ = reg_save
+endfunction
+
+function! s:Macroexpand(type, ...) abort
+  let sel_save = &selection
+  let &selection = "inclusive"
+  let reg_save = @@
+
+  if a:0  " Invoked from Visual mode, use gv command.
+    silent exe "normal! gvy"
+  elseif a:type == 'line'
+    silent exe "normal! '[V']y"
+  else
+    silent exe "normal! `[v`]y"
+  endif
+
+  let repl_buf = s:create_or_get_repl()
+  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
+  let echoed_cmd = "(macroexpand\n'" . @@ . ")"
+  call extend(pending_output, split(echoed_cmd, "\n"))
+  call add(pending_output, "")
+  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (str (macroexpand (quote %s))))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
+  call s:to_repl(repl_buf, cmd)
+
+  let &selection = sel_save
+  let @@ = reg_save
+endfunction
+function! s:Macroexpand1(type, ...) abort
+  let sel_save = &selection
+  let &selection = "inclusive"
+  let reg_save = @@
+
+  if a:0  " Invoked from Visual mode, use gv command.
+    silent exe "normal! gvy"
+  elseif a:type == 'line'
+    silent exe "normal! '[V']y"
+  else
+    silent exe "normal! `[v`]y"
+  endif
+
+  let repl_buf = s:create_or_get_repl()
+  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
+  let echoed_cmd = "(macroexpand-1\n'" . @@ . ")"
+  call extend(pending_output, split(echoed_cmd, "\n"))
+  call add(pending_output, "")
+  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (str (macroexpand-1 (quote %s))))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
+  call s:to_repl(repl_buf, cmd)
+
+  let &selection = sel_save
+  let @@ = reg_save
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -206,20 +293,29 @@ function! g:Tapi_plasmaplace_echom(bufnum, arg) abort
   echom a:arg
 endfunction
 
+let s:scratch_buf_prefix = [
+    \"-------------------------------------------------------------------------------",
+    \ ]
+
 function! g:Tapi_plasmaplace_scratch(bufnum, s) abort
   let current_win = winnr()
   let scratch = s:repl_to_scratch[a:bufnum]
   let info = getbufinfo(scratch)[0]
   let windows = info["windows"]
   if len(windows) > 0
+    let save = winsaveview()
     let winnr = windows[0]
     exe win_id2tabwin(winnr)[1] . "wincmd w"
     let n = line('$') + 1
   endif
-  call appendbufline(scratch, "$", split(a:s, "\n"))
+  let pending_output = s:repl_to_scratch_pending_output[a:bufnum]
+  let lines = s:scratch_buf_prefix + pending_output + split(a:s, "\n")
+  let s:repl_to_scratch_pending_output[a:bufnum] = []
+  call appendbufline(scratch, "$", lines)
   if len(windows) > 0
     exe "normal " . n . "ggzt"
     exe current_win . "wincmd w"
+    call winrestview(save)
   endif
 endfunction
 
@@ -236,42 +332,36 @@ function! s:Require(bang, echo, ns) abort
   let ns = a:ns
 
   let repl_buf = s:create_or_get_repl()
-  if ext ==# "cljs"
-    let code_file_path = tr(a:ns ==# "" ? plasmaplace#ns() : a:ns, '-.', '_/') . '.cljs'
-    let cmd = printf("(load-file %s)", s:str(code_file_path))
-    call s:to_repl(repl_buf, cmd)
-  else
-    if ns ==# ""
-      let ns = plasmaplace#ns()
-    endif
-    let ns = s:qsym(ns)
-    let reload_level = ":reload"
-    if a:bang
-      let reload_level .= "-all"
-    endif
-    let cmd = printf("(plasmaplace/Require %s %s)", ns, reload_level)
-    call s:to_repl(repl_buf, cmd)
+  if ns ==# ""
+    let ns = plasmaplace#ns()
   endif
+  let reload_level = ":reload"
+  if a:bang
+    let reload_level .= "-all"
+  endif
+  let ns = s:qsym(ns)
+  let cmd = printf("(plasmaplace/Require %s %s)", ns, reload_level)
+  call s:to_repl(repl_buf, cmd)
   if a:echo
     echo cmd
   endif
   return ""
 endfunction
 
-function! s:setup_commands() abort
-  command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
-endfunction
-
-
 """"""""""""""""""""""""""""""""""""""""
 
 function! s:K() abort
-  let repl_buf = s:create_or_get_repl()
-  call s:to_repl(
-      \ repl_buf,
-      \ printf('(plasmaplace/Doc (with-out-str (clojure.repl/doc %s)))',
-      \ "ns"))
-  return 'echom ' . string(repl_buf)
+  let word = expand('<cword>')
+  let java_candidate = matchstr(word, '^\%(\w\+\.\)*\u\l[[:alnum:]$]*\ze\%(\.\|\/\w\+\)\=$')
+  if java_candidate !=# ''
+    " TODO
+  else
+    let repl_buf = s:create_or_get_repl()
+    call s:to_repl(
+        \ repl_buf,
+        \ printf('(plasmaplace/Doc (with-out-str (clojure.repl/doc %s)))',
+        \ word))
+  endif
 endfunction
 
 function! s:ShowRepl() abort
@@ -282,10 +372,27 @@ endfunction
 nnoremap <Plug>PlasmaplaceK :call <SID>K()<CR>
 nnoremap <Plug>PlasmaplaceShowRepl :call <SID>ShowRepl()<CR>
 
+function! s:setup_commands() abort
+  command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
+  command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
+endfunction
 function! s:setup_keybinds() abort
   nmap <buffer> K <Plug>PlasmaplaceK
   nmap <buffer> cqp <Plug>PlasmaplaceShowRepl
   nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
+  nmap <buffer><silent> cp :set opfunc=<SID>EvalMotion<CR>g@
+  vmap <buffer><silent> cp :<C-U>call <SID>EvalMotion(visualmode(), 1)<CR>
+
+  " macro expansion
+  nmap <buffer><silent> cm :set opfunc=<SID>Macroexpand<CR>g@
+  vmap <buffer><silent> cm :<C-U>call <SID>Macroexpand(visualmode(), 1)<CR>
+  nmap <buffer><silent> c1m :set opfunc=<SID>Macroexpand1<CR>g@
+  vmap <buffer><silent> c1m :<C-U>call <SID>Macroexpand1(visualmode(), 1)<CR>
+
+  " requires vim-sexp for additional operators
+  nmap <buffer> cpp cpaf
+  nmap <buffer> cmm cmaf
+  nmap <buffer> c1mm c1maf
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -293,6 +400,6 @@ endfunction
 
 augroup plasmaplace
   autocmd!
-  autocmd FileType clojure call s:setup_keybinds()
   autocmd FileType clojure call s:setup_commands()
+  autocmd FileType clojure call s:setup_keybinds()
 augroup END

@@ -19,32 +19,27 @@
    (print s)))
 
 (defn log-stack [e]
-  (vim-call "scratch"
-            (pr-str
-             (with-out-str
-              (clojure.stacktrace/print-stack-trace e)))))
-
-(comment
- defmacro capture-stack [form]
-  `(try
-    ~form
-    (catch Exception e#
-      )))
+  (let [text
+        #?(:clj (with-out-str (clojure.stacktrace/print-stack-trace e))
+           :cljs (do (console/log e)
+                     (str "SEE JS CONSOLE" "\n" e)))]
+    (vim-call "scratch"
+            (pr-str text))))
 
 (defn Doc [s]
   (vim-call "scratch" (pr-str s)))
 
 (defn Require [namespace- reload-level]
   (try
-   (let [s (with-out-str #?(:clj (clojure.core/require namespace- reload-level)
-                            :cljs "TODO"))
+   (let [ret #?(:clj (with-out-str (clojure.core/require namespace- reload-level))
+              :cljs "TODO: use figwheel or shadow-cljs, this should not be necessary")
          cmd (str "(plasmaplace/Require "
                   namespace-
                   " "
                   reload-level
                   ")\n")]
-     (vim-call "scratch" (pr-str (str cmd s))))
-   (catch #?(:clj Exception :cljs js/Error) e
+     (vim-call "scratch" (pr-str (str cmd ret))))
+   (catch #?(:clj Exception :cljs :default) e
      (log-stack e))))
 
 (vim-call "scratch" (pr-str "Clojure REPL loaded. Have fun!"))
