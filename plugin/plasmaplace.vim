@@ -49,7 +49,7 @@ function! s:get_project_type(path)
     return "normal"
   endif
   if filereadable(a:path . "/shadow-cljs.edn")
-    return "shadow"
+    return "shadow-cljs"
   endif
   return 0
 endfunction
@@ -189,7 +189,7 @@ function! s:create_or_get_repl() abort
       \ "stoponexit": "term",
       \ "norestore": 1,
       \ }
-  if project_type == "shadow"
+  if project_type == "shadow-cljs"
     let repl_buf = term_start("npx shadow-cljs cljs-repl app", options)
   else
     let repl_buf = term_start("lein repl", options)
