@@ -36,22 +36,34 @@ let s:repl_to_project_key = {}
 let s:repl_to_scratch = {}
 let s:repl_to_scratch_pending_output = {}
 
+function! s:ClearCache() abort
+  let s:project_type_cache = {}
+endfunction
+call s:ClearCache()
+
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " utils
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 " gets the project path of the current buffer
 function! s:get_project_type(path)
+  if has_key(s:project_type_cache, path)
+    return s:project_type_cache[path]
+  endif
+
+  let type = 0
   if filereadable(a:path . "/project.clj")
-    return "normal"
+    let type = "normal"
   endif
   if filereadable(a:path . "/deps.edn")
-    return "normal"
+    let type = "normal"
   endif
   if filereadable(a:path . "/shadow-cljs.edn")
-    return "shadow-cljs"
+    let type = "shadow-cljs"
   endif
-  return 0
+
+  let s:project_type_cache[path] = type
+  return type
 endfunction
 function! s:get_project_path() abort
   let path = expand("%:p:h")
@@ -375,6 +387,8 @@ nnoremap <Plug>PlasmaplaceShowRepl :call <SID>ShowRepl()<CR>
 function! s:setup_commands() abort
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
+
+  command! -buffer PlasmaplaceClearCache :exe s:ClearCache()
 endfunction
 function! s:setup_keybinds() abort
   nmap <buffer> K <Plug>PlasmaplaceK
@@ -395,7 +409,6 @@ function! s:setup_keybinds() abort
   nmap <buffer> c1mm c1maf
 endfunction
 
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 augroup plasmaplace
