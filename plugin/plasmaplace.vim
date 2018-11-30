@@ -356,6 +356,19 @@ endfunction
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " main
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+function! s:SwitchToNs(...) abort
+  if a:0 > 0
+    let ns = a:1
+  else
+    let ns = plasmaplace#ns()
+  endif
+  let ns = s:qsym(ns)
+
+  let repl_buf = s:create_or_get_repl()
+  let cmd = printf("(in-ns %s)", ns)
+  call s:to_repl(repl_buf, cmd)
+endfunction
+
 function! s:Require(bang, echo, ns) abort
   if &autowrite || &autowriteall
     silent! wall
@@ -395,6 +408,7 @@ function! s:K() abort
   if java_candidate !=# ''
     " TODO
   else
+    call s:SwitchToNs()
     let repl_buf = s:create_or_get_repl()
     call s:to_repl(
         \ repl_buf,
