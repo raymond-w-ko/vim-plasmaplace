@@ -45,10 +45,24 @@ call s:ClearCache()
 " utils
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
+function! s:get_shadow_cljs_target(project_dir) abort
+  let code = readfile(a:project_dir . "/shadow-cljs.edn")
+  let code = map(code, {i, line -> trim(line)})
+  let code = join(code)
+
+  let header = ":builds"
+  let idx = match(code, header)
+  let code = strpart(code, idx + strlen(header))
+
+  let target = matchlist(code, '\v:(\w+)\s*\{:target\s+:browser.*')
+  echom target[1]
+  return target[1]
+endfunction
+
 " gets the project path of the current buffer
 function! s:get_project_type(path)
-  if has_key(s:project_type_cache, path)
-    return s:project_type_cache[path]
+  if has_key(s:project_type_cache, a:path)
+    return s:project_type_cache[a:path]
   endif
 
   let type = 0
@@ -62,7 +76,7 @@ function! s:get_project_type(path)
     let type = "shadow-cljs"
   endif
 
-  let s:project_type_cache[path] = type
+  let s:project_type_cache[a:path] = type
   return type
 endfunction
 function! s:get_project_path() abort
@@ -170,11 +184,16 @@ function! s:create_or_get_scratch(project_key) abort
 endfunction
 
 " load plasmaplace Clojure code
-function! s:loaded_plasmaplace_clojure_code(repl_buf) abort
+function! s:load_plasmaplace_clojure_code(repl_buf) abort
   let code = readfile(s:script_path . "/../cljc/plasmaplace.cljc")
   let code = map(code, {i, line -> trim(line)})
   let code = join(code)
   call s:to_repl(a:repl_buf, code)
+endfunction
+
+function! s:LoadCode() abort
+  let repl_buf = s:create_or_get_repl()
+  call s:load_plasmaplace_clojure_code(repl_buf)
 endfunction
 
 " create or get the buffer number that represents the REPL
@@ -202,7 +221,9 @@ function! s:create_or_get_repl() abort
       \ "norestore": 1,
       \ }
   if project_type == "shadow-cljs"
-    let repl_buf = term_start("npx shadow-cljs cljs-repl app", options)
+    let target = s:get_shadow_cljs_target(project_dir)
+    let cmd = printf("npx shadow-cljs cljs-repl %s", target)
+    let repl_buf = term_start(cmd, options)
   else
     let repl_buf = term_start("lein repl", options)
   endif
@@ -213,7 +234,7 @@ function! s:create_or_get_repl() abort
     wincmd c
   endif
 
-  call s:loaded_plasmaplace_clojure_code(repl_buf)
+  call s:load_plasmaplace_clojure_code(repl_buf)
 
   let scratch = s:create_or_get_scratch(project_key)
   let s:repl_to_scratch[repl_buf] = scratch
@@ -306,7 +327,7 @@ function! g:Tapi_plasmaplace_echom(bufnum, arg) abort
 endfunction
 
 let s:scratch_buf_prefix = [
-    \"-------------------------------------------------------------------------------",
+    \";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;",
     \ ]
 
 function! g:Tapi_plasmaplace_scratch(bufnum, s) abort
@@ -340,7 +361,13 @@ function! s:Require(bang, echo, ns) abort
     silent! wall
   endif
 
-  let ext = expand('%:e')
+  " used to reload plasmaplace code in case of refresh
+  let project_dir = s:get_project_path()
+  if s:get_project_type(project_dir) == "shadow-cljs"
+    call s:LoadCode()
+    return
+  endif
+
   let ns = a:ns
 
   let repl_buf = s:create_or_get_repl()
@@ -389,6 +416,7 @@ function! s:setup_commands() abort
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
 
   command! -buffer PlasmaplaceClearCache :exe s:ClearCache()
+  command! -buffer PlasmaplaceLoadCode :exe s:LoadCode()
 endfunction
 function! s:setup_keybinds() abort
   nmap <buffer> K <Plug>PlasmaplaceK
