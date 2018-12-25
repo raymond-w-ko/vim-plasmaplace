@@ -172,7 +172,7 @@ function! plasmaplace#center_scratch_buf(scratch, top_line_num) abort
     let save = winsaveview()
     let winnr = windows[0]
     exe win_id2tabwin(winnr)[1] . "wincmd w"
-    exe "normal " . a:top_line_num . "Gzt"
+    exe "keepjumps normal " . a:top_line_num . "Gzt"
     exe current_win . "wincmd w"
     call winrestview(save)
   endif
@@ -308,19 +308,15 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
+function! s:Doc(symbol) abort
+  let ns = plasmaplace#ns()
+  let ns = s:qsym(ns)
+  call plasmaplace#py(
+      \ printf('plasmaplace.Doc(%s, %s)',  s:str(ns), s:str(a:symbol)))
+  return ''
+endfunction
+
 function! s:K() abort
-  let word = expand('<cword>')
-  let java_candidate = matchstr(word, '^\%(\w\+\.\)*\u\l[[:alnum:]$]*\ze\%(\.\|\/\w\+\)\=$')
-  if java_candidate !=# ''
-    " TODO
-  else
-    " call s:SwitchToNs()
-    let repl_buf = s:create_or_get_repl()
-    " call s:to_repl(
-    "     \ repl_buf,
-    "     \ printf('(plasmaplace/Doc (with-out-str (clojure.repl/doc %s)))',
-    "     \ word))
-  endif
 endfunction
 
 function! s:ShowRepl() abort
@@ -328,18 +324,18 @@ function! s:ShowRepl() abort
   exe g:plasmaplace_repl_split_cmd . " sbuffer " . buf_name
 endfunction
 
-nnoremap <Plug>PlasmaplaceK :call <SID>K()<CR>
+nnoremap <Plug>PlasmaplaceK :<C-R>=<SID>K()<CR><CR>
 nnoremap <Plug>PlasmaplaceShowRepl :call <SID>ShowRepl()<CR>
 
 function! s:setup_commands() abort
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
+  setlocal keywordprg=:Doc
 
   command! -buffer PlasmaplaceClearCache :exe s:ClearCache()
   command! -buffer PlasmaplaceLoadCode :exe s:LoadCode()
 endfunction
 function! s:setup_keybinds() abort
-  nmap <buffer> K <Plug>PlasmaplaceK
   nmap <buffer> cqp <Plug>PlasmaplaceShowRepl
   nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
   nmap <buffer><silent> cp :set opfunc=<SID>EvalMotion<CR>g@
@@ -361,6 +357,6 @@ endfunction
 
 augroup plasmaplace
   autocmd!
-  " autocmd FileType clojure call s:setup_commands()
+  autocmd FileType clojure call s:setup_commands()
   autocmd FileType clojure call s:setup_keybinds()
 augroup END
