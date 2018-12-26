@@ -314,10 +314,13 @@ def is_done_msg(msg):
 
 
 class BaseJob(threading.Thread):
-    def __init__(self):
+    def __init__(self, repl):
         threading.Thread.__init__(self)
 
+        self.repl = repl
+
         self.input_queue = Queue()
+        self.wait_queue = Queue()
         self.lines = []
         self.wrote_out_header = False
 
@@ -343,13 +346,16 @@ class BaseJob(threading.Thread):
                 else:
                     self.lines += [str(msg)]
 
+    def wait(self):
+        self.wait_queue.get(block=True)
+        self.repl.wait_for_scratch_update()
+
 
 class DocJob(BaseJob):
     def __init__(self, repl, ns, symbol):
-        BaseJob.__init__(self)
+        BaseJob.__init__(self, repl)
         self.daemon = True
 
-        self.repl = repl
         self.ns = ns
         self.symbol = symbol
         self.id = "doc-job-" + fetch_job_number()
@@ -371,11 +377,12 @@ class DocJob(BaseJob):
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
+        self.wait_queue.put("done")
 
 
 class MacroexpandJob(BaseJob):
     def __init__(self, repl, ns, form):
-        BaseJob.__init__(self)
+        BaseJob.__init__(self, repl)
         self.daemon = True
 
         self.repl = repl
@@ -401,11 +408,12 @@ class MacroexpandJob(BaseJob):
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
+        self.wait_queue.put("done")
 
 
 class Macroexpand1Job(BaseJob):
     def __init__(self, repl, ns, form):
-        BaseJob.__init__(self)
+        BaseJob.__init__(self, repl)
         self.daemon = True
 
         self.repl = repl
@@ -431,11 +439,12 @@ class Macroexpand1Job(BaseJob):
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
+        self.wait_queue.put("done")
 
 
 class EvalJob(BaseJob):
     def __init__(self, repl, ns, form):
-        BaseJob.__init__(self)
+        BaseJob.__init__(self, repl)
         self.daemon = True
 
         self.repl = repl
@@ -462,11 +471,12 @@ class EvalJob(BaseJob):
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
+        self.wait_queue.put("done")
 
 
 class RequireJob(BaseJob):
     def __init__(self, repl, ns, reload_level):
-        BaseJob.__init__(self)
+        BaseJob.__init__(self, repl)
         self.daemon = True
 
         self.repl = repl
@@ -488,6 +498,7 @@ class RequireJob(BaseJob):
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
+        self.wait_queue.put("done")
 
 
 ###############################################################################
@@ -550,35 +561,35 @@ def Doc(ns, symbol):
     repl = create_or_get_repl()
     job = DocJob(repl, ns, symbol)
     job.start()
-    repl.wait_for_scratch_update()
+    job.wait()
 
 
 def Macroexpand(ns, form):
     repl = create_or_get_repl()
     job = MacroexpandJob(repl, ns, form)
     job.start()
-    repl.wait_for_scratch_update()
+    job.wait()
 
 
 def Macroexpand1(ns, form):
     repl = create_or_get_repl()
     job = Macroexpand1Job(repl, ns, form)
     job.start()
-    repl.wait_for_scratch_update()
+    job.wait()
 
 
 def Eval(ns, form):
     repl = create_or_get_repl()
     job = EvalJob(repl, ns, form)
     job.start()
-    repl.wait_for_scratch_update()
+    job.wait()
 
 
 def Require(ns, reload_level):
     repl = create_or_get_repl()
     job = RequireJob(repl, ns, reload_level)
     job.start()
-    repl.wait_for_scratch_update()
+    job.wait()
 
 
 if __name__ == "__main__":
