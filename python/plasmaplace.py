@@ -273,18 +273,22 @@ def fetch_job_number():
     return str(n)
 
 
-def out_msg_to_lines(msg):
-    return msg["out"].split("\n")
+def out_msg_to_lines(msg, wrote_out_header):
+    lines = []
+    if not wrote_out_header:
+        lines += [";; OUT:"]
+    lines += msg["out"].split("\n")
+    return lines
 
 
 def ex_msg_to_lines(msg):
-    lines = ["EX:"]
+    lines = [";; EX:"]
     lines += msg["ex"].split("\n")
     return lines
 
 
 def err_msg_to_lines(msg):
-    lines = ["ERR:"]
+    lines = [";; ERR:"]
     lines += msg["err"].split("\n")
     return lines
 
@@ -315,6 +319,7 @@ class BaseJob(threading.Thread):
 
         self.input_queue = Queue()
         self.lines = []
+        self.wrote_out_header = False
 
     def wait_for_output(self, silent=False, eval_value=False, debug=False):
         while True:
@@ -327,7 +332,8 @@ class BaseJob(threading.Thread):
                 if silent:
                     pass
                 elif "out" in msg:
-                    self.lines += out_msg_to_lines(msg)
+                    self.lines += out_msg_to_lines(msg, self.wrote_out_header)
+                    self.wrote_out_header = True
                 elif "ex" in msg:
                     self.lines += ex_msg_to_lines(msg)
                 elif "err" in msg:
@@ -458,6 +464,32 @@ class EvalJob(BaseJob):
         self.repl.unregister_job(self)
 
 
+class RequireJob(BaseJob):
+    def __init__(self, repl, ns, reload_level):
+        BaseJob.__init__(self)
+        self.daemon = True
+
+        self.repl = repl
+        self.ns = ns
+        self.reload_level = reload_level
+        self.id = "require-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = "(clojure.core/require %s %s)" % (self.ns, self.reload_level)
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += [";; CODE:"]
+        self.lines += code
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+
+
 ###############################################################################
 
 
@@ -538,6 +570,13 @@ def Macroexpand1(ns, form):
 def Eval(ns, form):
     repl = create_or_get_repl()
     job = EvalJob(repl, ns, form)
+    job.start()
+    repl.wait_for_scratch_update()
+
+
+def Require(ns, reload_level):
+    repl = create_or_get_repl()
+    job = RequireJob(repl, ns, reload_level)
     job.start()
     repl.wait_for_scratch_update()
 

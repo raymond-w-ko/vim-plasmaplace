@@ -247,44 +247,24 @@ endfunction
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " main
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-function! s:SwitchToNs(...) abort
-  if a:0 > 0
-    let ns = a:1
-  else
-    let ns = plasmaplace#ns()
-  endif
-  let ns = s:qsym(ns)
-
-  let repl_buf = s:create_or_get_repl()
-  let cmd = printf("(in-ns %s)", ns)
-  call s:to_repl(repl_buf, cmd)
-endfunction
-
 function! s:Require(bang, echo, ns) abort
   if &autowrite || &autowriteall
     silent! wall
   endif
 
-  " used to reload plasmaplace code in case of refresh
-  let project_dir = s:get_project_path()
-  if s:get_project_type(project_dir) == "shadow-cljs"
-    call s:LoadCode()
-    return
-  endif
-
-  let ns = a:ns
-
-  let repl_buf = s:create_or_get_repl()
-  if ns ==# ""
-    let ns = plasmaplace#ns()
-  endif
   let reload_level = ":reload"
   if a:bang
     let reload_level .= "-all"
   endif
+
+  let ns = a:ns
+  if ns ==# ""
+    let ns = plasmaplace#ns()
+  endif
   let ns = s:qsym(ns)
-  let cmd = printf("(plasmaplace/Require %s %s)", ns, reload_level)
-  call s:to_repl(repl_buf, cmd)
+
+  let cmd = printf("plasmaplace.Require(%s, %s)", s:pystr(ns), s:pystr(reload_level))
+  call plasmaplace#py(cmd)
   if a:echo
     echo cmd
   endif
