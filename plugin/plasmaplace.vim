@@ -343,7 +343,19 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
+function! s:cleanup_active_sessions() abort
+  call plasmaplace#py("plasmaplace.cleanup_active_sessions()")
+endfunction
+
+function! s:DeleteOtherNreplSessions() abort
+  call plasmaplace#py("plasmaplace.DeleteOtherNreplSessions()")
+endfunction
+
+""""""""""""""""""""""""""""""""""""""""
+
 function! s:setup_commands() abort
+  command! -buffer -bar DeleteOtherNreplSessions :exe s:DeleteOtherNreplSessions()
+
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
   setlocal keywordprg=:Doc
@@ -383,4 +395,5 @@ augroup plasmaplace
   autocmd!
   autocmd FileType clojure call s:setup_commands()
   autocmd FileType clojure call s:setup_keybinds()
+  autocmd VimLeave * call s:cleanup_active_sessions()
 augroup END

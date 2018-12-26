@@ -152,7 +152,7 @@ class REPL:
 
         self._write({"op": "ls-sessions"})
         sessions = self._read()
-        sessions = sessions["sessions"]
+        self.existing_sessions = sessions["sessions"]
 
         self.root_session = None
         self.root_session = self.acquire_session()
@@ -167,9 +167,12 @@ class REPL:
         startup_lines = ["connected to nREPL"]
         startup_lines += ["host: " + self.host]
         startup_lines += ["port: " + str(self.port)]
-        startup_lines += ["existing sessions: " + str(sessions)]
+        startup_lines += ["existing sessions: " + str(self.existing_sessions)]
         startup_lines += ["current session: " + self.root_session]
         self.to_scratch(startup_lines)
+
+        # NOTE: does not trigger!
+        # atexit.register(self.close_session, self.root_session)
 
     # TODO
     def is_closed():
@@ -233,8 +236,8 @@ class REPL:
         msg = self._read()
         return msg["new-session"]
 
-    def close_session(self, session):
-        if session == self.root_session:
+    def close_session(self, session, exiting=False):
+        if session == self.root_session and not exiting:
             return
         self._write({"op": "close", "session": session})
         msg = self._read()
@@ -261,6 +264,10 @@ class REPL:
             self.to_scratch(lines)
         except Empty:
             print("plasmaplace timed out while waiting for scratch update")
+
+    def delete_other_nrepl_sessions(self):
+        for session in self.existing_sessions:
+            self.close_session(session)
 
 
 JOB_COUNTER = 0
@@ -626,6 +633,19 @@ def RunTests(form):
     job = RunTestsJob(repl, form)
     job.start()
     job.wait()
+
+
+def DeleteOtherNreplSessions():
+    repl = create_or_get_repl()
+    repl.delete_other_nrepl_sessions()
+
+
+def cleanup_active_sessions():
+    global REPLS
+    for project_key, repl in REPLS.items():
+        repl.close_session(repl.root_session, True)
+        repl.close()
+    REPLS.clear()
 
 
 if __name__ == "__main__":
