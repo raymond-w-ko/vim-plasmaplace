@@ -30,17 +30,7 @@ endif
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 let s:script_path = expand('<sfile>:p:h')
 let s:python_dir = fnamemodify(expand("<sfile>"), ":p:h:h") . "/python"
-" dict of project_key to REPL terminal jobs
 let s:repl_scratch_buffers = {}
-let s:repl_to_project_key = {}
-let s:repl_to_scratch = {}
-let s:repl_to_scratch_pending_output = {}
-
-function! s:ClearCache() abort
-  let s:file_path_to_project_key = {}
-  let s:project_type_cache = {}
-endfunction
-call s:ClearCache()
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " python
@@ -100,6 +90,11 @@ call plasmaplace#py(
 " turn in memory string to (read)-able string
 function! s:str(string) abort
   return '"' . escape(a:string, '"\') . '"'
+endfunction
+
+" turn in memory string to python (read)-able string, newlines allowed
+function! s:pystr(string) abort
+  return '"""' . escape(a:string, '"\') . '"""'
 endfunction
 
 " quote a clojure symbol
@@ -199,12 +194,9 @@ function! s:EvalMotion(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let repl_buf = s:create_or_get_repl()
-  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
-  call extend(pending_output, split(@@, "\n"))
-  call add(pending_output, "")
-  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (with-out-str %s))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
-  call s:to_repl(repl_buf, cmd)
+  let ns = s:qsym(plasmaplace#ns())
+  let cmd = printf("plasmaplace.Eval(%s, %s)", s:pystr(ns), s:pystr(@@))
+  call plasmaplace#py(cmd)
 
   let &selection = sel_save
   let @@ = reg_save
@@ -223,17 +215,14 @@ function! s:Macroexpand(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let repl_buf = s:create_or_get_repl()
-  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
-  let echoed_cmd = "(macroexpand\n'" . @@ . ")"
-  call extend(pending_output, split(echoed_cmd, "\n"))
-  call add(pending_output, "")
-  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (str (macroexpand (quote %s))))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
-  call s:to_repl(repl_buf, cmd)
+  let ns = s:qsym(plasmaplace#ns())
+  let cmd = printf("plasmaplace.Macroexpand(%s, %s)", s:pystr(ns), s:pystr(@@))
+  call plasmaplace#py(cmd)
 
   let &selection = sel_save
   let @@ = reg_save
 endfunction
+
 function! s:Macroexpand1(type, ...) abort
   let sel_save = &selection
   let &selection = "inclusive"
@@ -247,13 +236,9 @@ function! s:Macroexpand1(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let repl_buf = s:create_or_get_repl()
-  let pending_output = s:repl_to_scratch_pending_output[repl_buf]
-  let echoed_cmd = "(macroexpand-1\n'" . @@ . ")"
-  call extend(pending_output, split(echoed_cmd, "\n"))
-  call add(pending_output, "")
-  let cmd = printf('(try (plasmaplace/vim-call "scratch" (pr-str (str (macroexpand-1 (quote %s))))) (catch #?(:clj Exception :cljs :default) e (plasmaplace/log-stack e)))', @@)
-  call s:to_repl(repl_buf, cmd)
+  let ns = s:qsym(plasmaplace#ns())
+  let cmd = printf("plasmaplace.Macroexpand1(%s, %s)", s:pystr(ns), s:pystr(@@))
+  call plasmaplace#py(cmd)
 
   let &selection = sel_save
   let @@ = reg_save
@@ -317,27 +302,25 @@ function! s:Doc(symbol) abort
 endfunction
 
 function! s:K() abort
-endfunction
-
-function! s:ShowRepl() abort
-  let buf_name = s:get_project_key()
-  exe g:plasmaplace_repl_split_cmd . " sbuffer " . buf_name
+  let word = expand('<cword>')
+  let java_candidate = matchstr(word, '^\%(\w\+\.\)*\u\l[[:alnum:]$]*\ze\%(\.\|\/\w\+\)\=$')
+  if java_candidate !=# ''
+    return 'Javadoc '.java_candidate
+  else
+    return 'Doc '.word
+  endif
 endfunction
 
 nnoremap <Plug>PlasmaplaceK :<C-R>=<SID>K()<CR><CR>
-nnoremap <Plug>PlasmaplaceShowRepl :call <SID>ShowRepl()<CR>
 
 function! s:setup_commands() abort
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
   setlocal keywordprg=:Doc
-
-  command! -buffer PlasmaplaceClearCache :exe s:ClearCache()
-  command! -buffer PlasmaplaceLoadCode :exe s:LoadCode()
 endfunction
 function! s:setup_keybinds() abort
-  nmap <buffer> cqp <Plug>PlasmaplaceShowRepl
-  nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
+  " nmap <buffer> cqp <Plug>PlasmaplaceShowRepl
+  " nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
   nmap <buffer><silent> cp :set opfunc=<SID>EvalMotion<CR>g@
   vmap <buffer><silent> cp :<C-U>call <SID>EvalMotion(visualmode(), 1)<CR>
 

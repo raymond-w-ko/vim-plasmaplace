@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import socket
+import ast
 
 # import select
 import threading
@@ -124,6 +125,7 @@ class REPL:
     def __init__(self, project_key, project_path, host, port):
         self.project_key = project_key
         self.project_path = project_path
+        self.project_type = get_project_type(self.project_path)
         self.host = host
         self.port = int(port)
 
@@ -149,10 +151,25 @@ class REPL:
         t2.start()
 
         self._write({"op": "ls-sessions"})
-        msg = self._read()
-        self.root_session = msg["sessions"][0]
+        sessions = self._read()
+        sessions = sessions["sessions"]
 
-        self.to_scratch(["connected to session: ", self.root_session])
+        self.root_session = None
+        self.root_session = self.acquire_session()
+
+        if self.project_type == "shadow-cljs":
+            self.eval(
+                "switch-to-cljs-repl",
+                self.root_session,
+                "(shadow/nrepl-select :browser)",
+            )
+
+        startup_lines = ["connected to nREPL"]
+        startup_lines += ["host: " + self.host]
+        startup_lines += ["port: " + str(self.port)]
+        startup_lines += ["existing sessions: " + str(sessions)]
+        startup_lines += ["current session: " + self.root_session]
+        self.to_scratch(startup_lines)
 
     # TODO
     def is_closed():
@@ -179,8 +196,9 @@ class REPL:
                 ret = bdecode(f)
                 if isinstance(ret, dict) and "id" in ret:
                     id = ret["id"]
-                    job = self.jobs[id]
-                    job.input_queue.put(ret, block=True)
+                    if id in self.jobs:
+                        job = self.jobs[id]
+                        job.input_queue.put(ret, block=True)
                 else:
                     self.output_queue.put(ret, block=True)
         finally:
@@ -208,7 +226,10 @@ class REPL:
         )
 
     def acquire_session(self):
-        self._write({"op": "clone", "session": self.root_session})
+        cmd = {"op": "clone"}
+        if self.root_session is not None:
+            cmd["session"] = self.root_session
+        self._write(cmd)
         msg = self._read()
         return msg["new-session"]
 
@@ -226,6 +247,10 @@ class REPL:
     def register_job(self, job):
         id = job.id
         self.jobs[id] = job
+
+    def unregister_job(self, job):
+        id = job.id
+        del self.jobs[id]
 
     def append_to_scratch(self, lines):
         self.pending_lines.put(lines)
@@ -253,15 +278,24 @@ def out_msg_to_lines(msg):
 
 
 def ex_msg_to_lines(msg):
-    return msg["ex"].split("\n")
+    lines = ["EX:"]
+    lines += msg["ex"].split("\n")
+    return lines
 
 
 def err_msg_to_lines(msg):
-    return msg["err"].split("\n")
+    lines = ["ERR:"]
+    lines += msg["err"].split("\n")
+    return lines
 
 
-def value_msg_to_lines(msg):
-    return [msg["value"]]
+def value_msg_to_lines(msg, eval_value):
+    lines = [";; VALUE:"]
+    value = msg["value"]
+    if eval_value:
+        value = ast.literal_eval(value)
+    lines += value.split("\n")
+    return lines
 
 
 def is_done_msg(msg):
@@ -275,9 +309,38 @@ def is_done_msg(msg):
     return status[0] == "done"
 
 
-class DocJob(threading.Thread):
-    def __init__(self, repl, ns, symbol):
+class BaseJob(threading.Thread):
+    def __init__(self):
         threading.Thread.__init__(self)
+
+        self.input_queue = Queue()
+        self.lines = []
+
+    def wait_for_output(self, silent=False, eval_value=False, debug=False):
+        while True:
+            msg = self.input_queue.get(block=True)
+            if debug:
+                print(msg)
+            if is_done_msg(msg):
+                break
+            else:
+                if silent:
+                    pass
+                elif "out" in msg:
+                    self.lines += out_msg_to_lines(msg)
+                elif "ex" in msg:
+                    self.lines += ex_msg_to_lines(msg)
+                elif "err" in msg:
+                    self.lines += err_msg_to_lines(msg)
+                elif "value" in msg:
+                    self.lines += value_msg_to_lines(msg, eval_value)
+                else:
+                    self.lines += [str(msg)]
+
+
+class DocJob(BaseJob):
+    def __init__(self, repl, ns, symbol):
+        BaseJob.__init__(self)
         self.daemon = True
 
         self.repl = repl
@@ -285,41 +348,114 @@ class DocJob(threading.Thread):
         self.symbol = symbol
         self.id = "doc-job-" + fetch_job_number()
         self.session = self.repl.acquire_session()
-        self.input_queue = Queue()
-        self.lines = []
 
         self.repl.register_job(self)
-
-    def wait_for_output(self):
-        while True:
-            msg = self.input_queue.get(block=True)
-            if is_done_msg(msg):
-                break
-            else:
-                if "out" in msg:
-                    self.lines += out_msg_to_lines(msg)
-                elif "ex" in msg:
-                    self.lines += ex_msg_to_lines(msg)
-                elif "err" in msg:
-                    self.lines += err_msg_to_lines(msg)
-                elif "value" in msg:
-                    self.lines += value_msg_to_lines(msg)
-                else:
-                    self.lines += [str(msg)]
 
     def run(self):
         code = "(in-ns %s)" % (self.ns)
         self.lines += [code]
         self.repl.eval(self.id, self.session, code)
-        self.wait_for_output()
+        self.wait_for_output(silent=True)
 
-        code = "(clojure.repl/doc %s)" % (self.symbol)
+        code = "(with-out-str (clojure.repl/doc %s))" % (self.symbol)
         self.lines += [code]
         self.repl.eval(self.id, self.session, code)
-        self.wait_for_output()
+        self.wait_for_output(eval_value=True)
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+
+
+class MacroexpandJob(BaseJob):
+    def __init__(self, repl, ns, form):
+        BaseJob.__init__(self)
+        self.daemon = True
+
+        self.repl = repl
+        self.ns = ns
+        self.form = form
+        self.id = "macroexpand-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = "(in-ns %s)" % (self.ns)
+        self.lines += [code]
+        self.repl.eval(self.id, self.session, code)
+        self.wait_for_output(silent=True)
+
+        code = "(macroexpand (quote\n%s))" % (self.form)
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += code
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+
+
+class Macroexpand1Job(BaseJob):
+    def __init__(self, repl, ns, form):
+        BaseJob.__init__(self)
+        self.daemon = True
+
+        self.repl = repl
+        self.ns = ns
+        self.form = form
+        self.id = "macroexpand-1-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = "(in-ns %s)" % (self.ns)
+        self.lines += [code]
+        self.repl.eval(self.id, self.session, code)
+        self.wait_for_output(silent=True)
+
+        code = "(macroexpand-1 (quote\n%s))" % (self.form)
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += code
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+
+
+class EvalJob(BaseJob):
+    def __init__(self, repl, ns, form):
+        BaseJob.__init__(self)
+        self.daemon = True
+
+        self.repl = repl
+        self.ns = ns
+        self.form = form
+        self.id = "eval-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = "(in-ns %s)" % (self.ns)
+        self.lines += [code]
+        self.repl.eval(self.id, self.session, code)
+        self.wait_for_output(silent=True)
+
+        code = "%s" % (self.form)
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += [";; CODE:"]
+        self.lines += code
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
 
 
 ###############################################################################
@@ -381,6 +517,27 @@ def create_or_get_repl():
 def Doc(ns, symbol):
     repl = create_or_get_repl()
     job = DocJob(repl, ns, symbol)
+    job.start()
+    repl.wait_for_scratch_update()
+
+
+def Macroexpand(ns, form):
+    repl = create_or_get_repl()
+    job = MacroexpandJob(repl, ns, form)
+    job.start()
+    repl.wait_for_scratch_update()
+
+
+def Macroexpand1(ns, form):
+    repl = create_or_get_repl()
+    job = Macroexpand1Job(repl, ns, form)
+    job.start()
+    repl.wait_for_scratch_update()
+
+
+def Eval(ns, form):
+    repl = create_or_get_repl()
+    job = EvalJob(repl, ns, form)
     job.start()
     repl.wait_for_scratch_update()
 
