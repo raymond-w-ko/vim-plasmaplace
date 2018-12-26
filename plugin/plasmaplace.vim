@@ -248,6 +248,9 @@ endfunction
 " main
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 function! s:Require(bang, echo, ns) abort
+  if expand("%:e" ==# "cljs")
+    return
+  endif
   if &autowrite || &autowriteall
     silent! wall
   endif
@@ -293,11 +296,66 @@ endfunction
 
 nnoremap <Plug>PlasmaplaceK :<C-R>=<SID>K()<CR><CR>
 
+""""""""""""""""""""""""""""""""""""""""
+
+function! s:RunTests(bang, count, ...) abort
+  if &autowrite || &autowriteall
+    silent! wall
+  endif
+  if a:count < 0
+    let pre = ''
+    if a:0
+      let expr = ['(clojure.test/run-all-tests #"'.join(a:000, '|').'")']
+    else
+      let expr = ['(clojure.test/run-all-tests)']
+    endif
+  else
+    if a:0 && a:000 !=# [plasmaplace#ns()]
+      let args = a:000
+    else
+      let args = [plasmaplace#ns()]
+      if a:count
+        let pattern = '^\s*(def\k*\s\+\(\h\k*\)'
+        let line = search(pattern, 'bcWn')
+        if line
+          let args[0] .= '/' . matchlist(getline(line), pattern)[1]
+        endif
+      endif
+    endif
+    let reqs = map(copy(args), '"''".v:val')
+    let pre = '(clojure.core/require '.substitute(join(reqs, ' '), '/\k\+', '', 'g').' :reload) '
+    let expr = []
+    let vars = filter(copy(reqs), 'v:val =~# "/"')
+    let nses = filter(copy(reqs), 'v:val !~# "/"')
+    if len(vars) == 1
+      call add(expr, '(clojure.test/test-vars [#' . vars[0] . '])')
+    elseif !empty(vars)
+      call add(expr, join(['(clojure.test/test-vars'] + map(vars, '"#".v:val'), ' ').')')
+    endif
+    if !empty(nses)
+      call add(expr, join(['(clojure.test/run-tests'] + nses, ' ').')')
+    endif
+  endif
+  let code = join(expr, ' ')
+  call plasmaplace#py(printf("plasmaplace.RunTests(%s)", s:pystr(code)))
+  echo code
+endfunction
+
+""""""""""""""""""""""""""""""""""""""""
+
 function! s:setup_commands() abort
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)
   command! -buffer -bar -nargs=1 Doc :exe s:Doc(<q-args>)
   setlocal keywordprg=:Doc
+
+  command! -buffer -bar -bang -range=0 -nargs=* RunTests
+        \ call s:RunTests(<bang>0, <line1> == 0 ? -1 : <count>, <f-args>)
+  command! -buffer -bang -nargs=* RunAllTests
+        \ call s:RunTests(<bang>0, -1, <f-args>)
 endfunction
+
+""""""""""""""""""""""""""""""""""""""""
+
 function! s:setup_keybinds() abort
   " nmap <buffer> cqp <Plug>PlasmaplaceShowRepl
   " nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
@@ -314,6 +372,9 @@ function! s:setup_keybinds() abort
   nmap <buffer> cpp cpaf
   nmap <buffer> cmm cmaf
   nmap <buffer> c1mm c1maf
+
+  " tests
+  nmap <buffer> cpr :<C-R>=expand('%:e') ==# 'cljs' ? 'Require' : 'RunTests'<CR><CR>
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""

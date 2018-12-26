@@ -273,11 +273,13 @@ def fetch_job_number():
     return str(n)
 
 
-def out_msg_to_lines(msg, wrote_out_header):
-    lines = []
-    if not wrote_out_header:
-        lines += [";; OUT:"]
-    lines += msg["out"].split("\n")
+def extract_out_msg(msg):
+    return msg["out"]
+
+
+def out_to_lines(out):
+    lines = [";; OUT:"]
+    lines += out.split("\n")
     return lines
 
 
@@ -321,8 +323,8 @@ class BaseJob(threading.Thread):
 
         self.input_queue = Queue()
         self.wait_queue = Queue()
+        self.out = []
         self.lines = []
-        self.wrote_out_header = False
 
     def wait_for_output(self, silent=False, eval_value=False, debug=False):
         while True:
@@ -330,13 +332,14 @@ class BaseJob(threading.Thread):
             if debug:
                 print(msg)
             if is_done_msg(msg):
+                out = "".join(self.out)
+                self.lines += out_to_lines(out)
                 break
             else:
                 if silent:
                     pass
                 elif "out" in msg:
-                    self.lines += out_msg_to_lines(msg, self.wrote_out_header)
-                    self.wrote_out_header = True
+                    self.out.append(extract_out_msg(msg))
                 elif "ex" in msg:
                     self.lines += ex_msg_to_lines(msg)
                 elif "err" in msg:
@@ -501,6 +504,32 @@ class RequireJob(BaseJob):
         self.wait_queue.put("done")
 
 
+class RunTestsJob(BaseJob):
+    def __init__(self, repl, form):
+        BaseJob.__init__(self, repl)
+        self.daemon = True
+
+        self.repl = repl
+        self.form = form
+        self.id = "run-tests-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = self.form
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += [";; CODE:"]
+        self.lines += code
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+        self.wait_queue.put("done")
+
+
 ###############################################################################
 
 
@@ -588,6 +617,13 @@ def Eval(ns, form):
 def Require(ns, reload_level):
     repl = create_or_get_repl()
     job = RequireJob(repl, ns, reload_level)
+    job.start()
+    job.wait()
+
+
+def RunTests(form):
+    repl = create_or_get_repl()
+    job = RunTestsJob(repl, form)
     job.start()
     job.wait()
 
