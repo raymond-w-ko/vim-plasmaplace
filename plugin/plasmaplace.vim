@@ -405,5 +405,5 @@ augroup plasmaplace
   autocmd FileType clojure call s:setup_keybinds()
   autocmd VimEnter * call s:VimEnter()
   autocmd VimLeave * call s:cleanup_active_sessions()
-  autocmd InsertLeave,BufEnter * call s:FlushScratchBuffer()
+  autocmd InsertLeave,BufEnter clojure call s:FlushScratchBuffer()
 augroup END

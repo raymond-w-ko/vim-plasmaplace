@@ -653,7 +653,10 @@ def FlushScratchBuffer():
     global REPLS
     if not _ready:
         return
-    project_key = get_project_key()
+    try:
+        project_key = get_project_key()
+    except:  # noqa
+        return
     if project_key not in REPLS:
         return
     repl = create_or_get_repl()
