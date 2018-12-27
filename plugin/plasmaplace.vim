@@ -343,12 +343,20 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
+function! s:VimEnter() abort
+  call plasmaplace#py("plasmaplace.VimEnter()")
+endfunction
+
 function! s:cleanup_active_sessions() abort
   call plasmaplace#py("plasmaplace.cleanup_active_sessions()")
 endfunction
 
 function! s:DeleteOtherNreplSessions() abort
   call plasmaplace#py("plasmaplace.DeleteOtherNreplSessions()")
+endfunction
+
+function! s:FlushScratchBuffer() abort
+  call plasmaplace#py("plasmaplace.FlushScratchBuffer()")
 endfunction
 
 """"""""""""""""""""""""""""""""""""""""
@@ -395,5 +403,7 @@ augroup plasmaplace
   autocmd!
   autocmd FileType clojure call s:setup_commands()
   autocmd FileType clojure call s:setup_keybinds()
+  autocmd VimEnter * call s:VimEnter()
   autocmd VimLeave * call s:cleanup_active_sessions()
+  autocmd InsertLeave,BufEnter * call s:FlushScratchBuffer()
 augroup END

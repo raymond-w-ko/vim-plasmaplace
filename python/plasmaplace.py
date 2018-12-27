@@ -258,12 +258,13 @@ class REPL:
     def append_to_scratch(self, lines):
         self.pending_lines.put(lines)
 
-    def wait_for_scratch_update(self, timeout=1.0):
+    def wait_for_scratch_update(self, timeout=5.0):
         try:
-            lines = self.pending_lines.get(block=True, timeout=1)
+            lines = self.pending_lines.get(block=True, timeout=timeout)
             self.to_scratch(lines)
         except Empty:
-            print("plasmaplace timed out while waiting for scratch update")
+            if timeout > 0.0:
+                print("plasmaplace timed out while waiting for scratch update")
 
     def delete_other_nrepl_sessions(self):
         for session in self.existing_sessions:
@@ -575,7 +576,6 @@ def get_project_key():
 
 def get_nrepl_port(project_path):
     path = os.path.join(project_path, ".nrepl-port")
-    print(path)
     if os.path.exists(path):
         with open(path, "r") as f:
             return f.read().strip()
@@ -638,6 +638,26 @@ def RunTests(form):
 def DeleteOtherNreplSessions():
     repl = create_or_get_repl()
     repl.delete_other_nrepl_sessions()
+
+
+_ready = False
+
+
+def VimEnter():
+    global _ready
+    _ready = True
+
+
+def FlushScratchBuffer():
+    global _ready
+    global REPLS
+    if not _ready:
+        return
+    project_key = get_project_key()
+    if project_key not in REPLS:
+        return
+    repl = create_or_get_repl()
+    repl.wait_for_scratch_update(0.0)
 
 
 def cleanup_active_sessions():
