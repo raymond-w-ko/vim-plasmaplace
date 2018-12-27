@@ -331,6 +331,10 @@ class BaseJob(threading.Thread):
 
         self.input_queue = Queue()
         self.wait_queue = Queue()
+
+        self.init_output()
+
+    def init_output(self):
         self.out = []
         self.lines = []
 
@@ -342,6 +346,7 @@ class BaseJob(threading.Thread):
             if is_done_msg(msg):
                 out = "".join(self.out)
                 self.lines += out_to_lines(out)
+                self.out_str = out
                 break
             else:
                 if silent:
@@ -358,8 +363,9 @@ class BaseJob(threading.Thread):
                     self.lines += [str(msg)]
 
     def wait(self):
-        self.wait_queue.get(block=True)
+        ret = self.wait_queue.get(block=True)
         self.repl.wait_for_scratch_update()
+        return ret
 
 
 class DocJob(BaseJob):
@@ -669,6 +675,54 @@ def cleanup_active_sessions():
         repl.close_session(repl.root_session, True)
         repl.close()
     REPLS.clear()
+
+
+###############################################################################
+
+
+class CljfmtJob(BaseJob):
+    def __init__(self, repl, code):
+        BaseJob.__init__(self, repl)
+        self.daemon = True
+
+        self.repl = repl
+        self.code = code
+        self.id = "cljfmt-job-" + fetch_job_number()
+        self.session = self.repl.acquire_session()
+
+        self.repl.register_job(self)
+
+    def run(self):
+        code = "(require 'cljfmt.core)"
+        self.repl.eval(self.id, self.session, code)
+        self.lines += [";; CODE:"]
+        self.lines += [code]
+        self.wait_for_output(eval_value=False, debug=False)
+
+        template = "(print (cljfmt.core/reformat-string %s nil))"
+        code = template % self.code
+        self.repl.eval(self.id, self.session, code)
+        code = code.split("\n")
+        self.lines += [";; CODE:"]
+        self.lines += [template % '"<buffer contents>"']
+        self.wait_for_output(eval_value=False, debug=False)
+
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+        self.wait_queue.put(self.out_str)
+
+
+def Cljfmt(code):
+    repl = create_or_get_repl()
+    job = CljfmtJob(repl, code)
+    job.start()
+    formatted_code = job.wait()
+    vl = vim.bindeval("s:formatted_code")
+    vl.extend(formatted_code.split("\n"))
+
+
+###############################################################################
 
 
 if __name__ == "__main__":

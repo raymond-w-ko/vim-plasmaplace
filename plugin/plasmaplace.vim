@@ -343,6 +343,41 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
+function! s:get_current_buffer_contents_as_string() abort
+  let tmp = []
+  for line in getline(1, '$')
+    let line = substitute(line, '\', '\\\\', 'g')
+    call add(tmp, line)
+  endfor
+  let escaped_buffer_contents = join(tmp, '\n')
+
+  " Take care of escaping quotes
+  let escaped_buffer_contents = substitute(escaped_buffer_contents, '"', '\\"', 'g')
+  return '"' . escaped_buffer_contents . '"'
+endfunction
+
+function! s:replace_buffer(content) abort
+  let content = type(a:content) == v:t_list ? a:content : split(a:content, "\n")
+  if getline(1, '$') != content
+    %del
+    call setline(1, content)
+  endif
+endfunction
+
+function! plasmaplace#Cljfmt() abort
+  let code = s:get_current_buffer_contents_as_string()
+  let s:formatted_code = []
+  call plasmaplace#py(printf("plasmaplace.Cljfmt(%s)", s:pystr(code)))
+
+  " save cursor position and many other things
+  let l:curw = winsaveview()
+  call s:replace_buffer(s:formatted_code)
+  " restore our cursor/windows positions
+  call winrestview(l:curw)
+endfunction
+
+""""""""""""""""""""""""""""""""""""""""
+
 function! s:VimEnter() abort
   call plasmaplace#py("plasmaplace.VimEnter()")
 endfunction
@@ -372,6 +407,8 @@ function! s:setup_commands() abort
         \ call s:RunTests(<bang>0, <line1> == 0 ? -1 : <count>, <f-args>)
   command! -buffer -bang -nargs=* RunAllTests
         \ call s:RunTests(<bang>0, -1, <f-args>)
+
+  command! -buffer Cljfmt call plasmaplace#Cljfmt()
 endfunction
 
 """"""""""""""""""""""""""""""""""""""""
