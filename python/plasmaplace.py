@@ -345,23 +345,28 @@ class BaseJob(threading.Thread):
                 print(msg)
             if is_done_msg(msg):
                 out = "".join(self.out)
-                self.lines += out_to_lines(out)
+                if not silent:
+                    self.lines += out_to_lines(out)
                 self.out_str = out
                 break
             else:
-                if silent:
-                    pass
-                elif "out" in msg:
+                if "out" in msg:
                     self.out.append(extract_out_msg(msg))
                 elif "ex" in msg:
-                    self.lines += ex_msg_to_lines(msg)
+                    lines = ex_msg_to_lines(msg)
+                    if not silent:
+                        self.lines += lines
                 elif "err" in msg:
-                    self.lines += err_msg_to_lines(msg)
+                    lines = err_msg_to_lines(msg)
+                    if not silent:
+                        self.lines += lines
                 elif "value" in msg:
                     lines, raw_value = value_msg_to_lines(msg, eval_value)
-                    self.lines += lines
+                    if not silent:
+                        self.lines += lines
                     self.raw_value = raw_value
                 else:
+                    # ignore silent due to probably an error or unhandled case
                     self.lines += [str(msg)]
 
     def wait(self):
@@ -699,7 +704,7 @@ class CljfmtJob(BaseJob):
         self.repl.eval(self.id, self.session, code)
         self.lines += [";; CODE:"]
         self.lines += [code]
-        self.wait_for_output(eval_value=False, debug=False)
+        self.wait_for_output(eval_value=False, debug=False, silent=True)
 
         template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
         code = template % self.code
