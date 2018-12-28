@@ -309,7 +309,7 @@ def value_msg_to_lines(msg, eval_value):
     if eval_value:
         value = ast.literal_eval(value)
     lines += value.split("\n")
-    return lines
+    return lines, value
 
 
 def is_done_msg(msg):
@@ -358,7 +358,9 @@ class BaseJob(threading.Thread):
                 elif "err" in msg:
                     self.lines += err_msg_to_lines(msg)
                 elif "value" in msg:
-                    self.lines += value_msg_to_lines(msg, eval_value)
+                    lines, raw_value = value_msg_to_lines(msg, eval_value)
+                    self.lines += lines
+                    self.raw_value = raw_value
                 else:
                     self.lines += [str(msg)]
 
@@ -531,12 +533,12 @@ class RunTestsJob(BaseJob):
         self.repl.register_job(self)
 
     def run(self):
-        code = self.form
+        code = "(with-out-str %s)" % (self.form)
         self.repl.eval(self.id, self.session, code)
         code = code.split("\n")
         self.lines += [";; CODE:"]
         self.lines += code
-        self.wait_for_output(eval_value=False, debug=False)
+        self.wait_for_output(eval_value=True, debug=False)
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
@@ -699,18 +701,18 @@ class CljfmtJob(BaseJob):
         self.lines += [code]
         self.wait_for_output(eval_value=False, debug=False)
 
-        template = "(print (cljfmt.core/reformat-string %s nil))"
+        template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
         code = template % self.code
         self.repl.eval(self.id, self.session, code)
         code = code.split("\n")
         self.lines += [";; CODE:"]
         self.lines += [template % '"<buffer contents>"']
-        self.wait_for_output(eval_value=False, debug=False)
+        self.wait_for_output(eval_value=True, debug=False, silent=True)
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
         self.repl.unregister_job(self)
-        self.wait_queue.put(self.out_str)
+        self.wait_queue.put(self.raw_value)
 
 
 def Cljfmt(code):

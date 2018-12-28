@@ -302,12 +302,21 @@ function! s:RunTests(bang, count, ...) abort
   if &autowrite || &autowriteall
     silent! wall
   endif
+  let ext = expand('%:e')
+  if ext ==# "cljs"
+    let test_ns = "cljs.test"
+  else
+    let test_ns = "clojure.test"
+  endif
+
   if a:count < 0
-    let pre = ''
     if a:0
-      let expr = ['(clojure.test/run-all-tests #"'.join(a:000, '|').'")']
+      let expr = [
+          \ printf('(%s/run-all-tests #"', test_ns)
+          \ . join(a:000, '|').'")'
+          \ ]
     else
-      let expr = ['(clojure.test/run-all-tests)']
+      let expr = [printf('(%s/run-all-tests)', test_ns)]
     endif
   else
     if a:0 && a:000 !=# [plasmaplace#ns()]
@@ -323,7 +332,6 @@ function! s:RunTests(bang, count, ...) abort
       endif
     endif
     let reqs = map(copy(args), '"''".v:val')
-    let pre = '(clojure.core/require '.substitute(join(reqs, ' '), '/\k\+', '', 'g').' :reload) '
     let expr = []
     let vars = filter(copy(reqs), 'v:val =~# "/"')
     let nses = filter(copy(reqs), 'v:val !~# "/"')
@@ -333,7 +341,9 @@ function! s:RunTests(bang, count, ...) abort
       call add(expr, join(['(clojure.test/test-vars'] + map(vars, '"#".v:val'), ' ').')')
     endif
     if !empty(nses)
-      call add(expr, join(['(clojure.test/run-tests'] + nses, ' ').')')
+      call add(expr, join([
+          \ printf('(%s/run-tests', test_ns)
+          \ ] + nses, ' ').')')
     endif
   endif
   let code = join(expr, ' ')
@@ -431,7 +441,7 @@ function! s:setup_keybinds() abort
   nmap <buffer> c1mm c1maf
 
   " tests
-  nmap <buffer> cpr :<C-R>=expand('%:e') ==# 'cljs' ? 'Require' : 'RunTests'<CR><CR>
+  nmap <buffer> cpr :RunTests<CR>
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
