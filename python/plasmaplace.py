@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import vim  # noqa
+try:
+    import vim  # noqa
+except:  # noqa
+    pass
 import re
 import os
 import sys
@@ -121,6 +124,18 @@ def bdecode(f, char=None):
         raise TypeError("unexpected type " + char + "in bencode data")
 
 
+def get_shadow_browser_target(project_path):
+    path = os.path.join(project_path, "shadow-cljs.edn")
+    with open(path, "r") as f:
+        code = f.read()
+    code = code.replace("\n", " ")
+    idx = code.index(":builds")
+    code = code[idx:]
+    print(code)
+    m = re.search(r"\s*(\:\w+)\s*\{\:target\s+\:browser.*", code)
+    return m.group(1)
+
+
 class REPL:
     def __init__(self, project_key, project_path, host, port):
         self.project_key = project_key
@@ -158,10 +173,11 @@ class REPL:
         self.root_session = self.acquire_session()
 
         if self.project_type == "shadow-cljs":
+            shadow_browser_target = get_shadow_browser_target(project_path)
             self.eval(
                 "switch-to-cljs-repl",
                 self.root_session,
-                "(shadow/nrepl-select :browser)",
+                "(shadow/nrepl-select :browser)" % (shadow_browser_target),
             )
 
         startup_lines = ["connected to nREPL"]
