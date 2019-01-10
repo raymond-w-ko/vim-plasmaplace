@@ -177,7 +177,7 @@ class REPL:
             self.eval(
                 "switch-to-cljs-repl",
                 self.root_session,
-                "(shadow/nrepl-select :browser)" % (shadow_browser_target),
+                "(shadow/nrepl-select %s)" % (shadow_browser_target),
             )
 
         startup_lines = ["connected to nREPL"]
