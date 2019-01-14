@@ -131,7 +131,6 @@ def get_shadow_browser_target(project_path):
     code = code.replace("\n", " ")
     idx = code.index(":builds")
     code = code[idx:]
-    print(code)
     m = re.search(r"\s*(\:\w+)\s*\{\:target\s+\:browser.*", code)
     return m.group(1)
 
