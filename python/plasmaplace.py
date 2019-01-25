@@ -154,6 +154,7 @@ class REPL:
         s.connect((self.host, self.port))
         s.setblocking(1)
         self.socket = s
+        self.closed = False
 
         self.input_queue = Queue()
         self.output_queue = Queue()
@@ -189,9 +190,8 @@ class REPL:
         # NOTE: does not trigger!
         # atexit.register(self.close_session, self.root_session)
 
-    # TODO
-    def is_closed():
-        return False
+    def is_closed(self):
+        return self.closed
 
     def close(self):
         return self.socket.close()
@@ -202,16 +202,25 @@ class REPL:
     def _produce(self):
         while True:
             payload = self.input_queue.get(block=True)
-            if sys.version_info[0] >= 3:
-                self.socket.sendall(bytes(payload, "UTF-8"))
-            else:
-                self.socket.sendall(payload)
+
+            try:
+                if sys.version_info[0] >= 3:
+                    self.socket.sendall(bytes(payload, "UTF-8"))
+                else:
+                    self.socket.sendall(payload)
+            except: # noqa
+                self.closed = True
+                raise
 
     def _consume(self):
         f = self.socket.makefile()
         try:
             while True:
-                ret = bdecode(f)
+                try:
+                    ret = bdecode(f)
+                except EOFError:
+                    self.closed = True
+                    raise
                 if isinstance(ret, dict) and "id" in ret:
                     id = ret["id"]
                     if id in self.jobs:
@@ -614,6 +623,9 @@ def create_or_get_repl():
     global REPLS
     project_key = get_project_key()
     project_path = get_project_path()
+    if project_key in REPLS:
+        if REPLS[project_key].closed:
+            del REPLS[project_key]
     if project_key not in REPLS:
         REPLS[project_key] = REPL(
             project_key, project_path, "localhost", get_nrepl_port(project_path)
