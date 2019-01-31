@@ -133,6 +133,12 @@ function! plasmaplace#ns() abort
   endif
 endfunction
 
+function! s:set_local_window_options()
+  setlocal foldcolumn=0
+  setlocal nofoldenable
+  setlocal number
+endfunction
+
 " send Clojure form to REPL to (eval)
 function! s:create_or_get_scratch(project_key) abort
   if has_key(s:repl_scratch_buffers, a:project_key)
@@ -145,10 +151,8 @@ function! s:create_or_get_scratch(project_key) abort
   setlocal bufhidden=
   setlocal buflisted
   setlocal buftype=nofile
-  setlocal foldcolumn=0
-  setlocal nofoldenable
-  setlocal number
   setlocal noswapfile
+  call s:set_local_window_options()
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufline(bnum, 1, "Loading Clojure REPL...")
@@ -156,16 +160,40 @@ function! s:create_or_get_scratch(project_key) abort
   nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum
   wincmd p
+  redraw
   return bnum
+endfunction
+
+function! s:window_in_tab(aliases, windows)
+  if type(a:aliases) != v:t_list  | return 0 | endif
+  if type(a:windows) != v:t_list | return 0 | endif
+  for x in a:aliases
+    for y in a:windows
+      if x == y
+        return 1
+      endif
+    endfor
+  endfor
+  return 0
 endfunction
 
 function! plasmaplace#center_scratch_buf(scratch, top_line_num) abort
   let current_win = winnr()
+
   let info = getbufinfo(a:scratch)[0]
-  let windows = info["windows"]
-  if len(windows) > 0
+  let buffer_windows = info["windows"]
+
+  let curtab = tabpagenr()
+  let visible_windows = gettabinfo(curtab)[0]
+  let visible_windows = visible_windows["windows"]
+  if len(buffer_windows) > 0
+    if !s:window_in_tab(buffer_windows, visible_windows)
+      execute g:plasmaplace_scratch_split_cmd
+      execute "buffer " . a:scratch
+      call s:set_local_window_options()
+    endif
     let save = winsaveview()
-    let winnr = windows[0]
+    let winnr = buffer_windows[0]
     exe win_id2tabwin(winnr)[1] . "wincmd w"
     exe "keepjumps normal " . a:top_line_num . "Gzt"
     exe current_win . "wincmd w"
