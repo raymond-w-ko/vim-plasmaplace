@@ -305,10 +305,14 @@ endfunction
 """"""""""""""""""""""""""""""""""""""""
 
 function! s:Doc(symbol) abort
+  " Vim shell escapes the symbol when this is called via the 'keywordprg'
+  " method. This mangles functions that end with a '?' which is common in
+  " Clojure predicate functions.
+  let symbol = substitute(a:symbol, '\\?', "?", "g")
   let ns = plasmaplace#ns()
   let ns = s:qsym(ns)
   call plasmaplace#py(
-      \ printf('plasmaplace.Doc(%s, %s)',  s:str(ns), s:str(a:symbol)))
+      \ printf('plasmaplace.Doc(%s, %s)',  s:str(ns), s:str(symbol)))
   return ''
 endfunction
 
