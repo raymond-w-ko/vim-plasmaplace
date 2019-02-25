@@ -309,6 +309,7 @@ function! s:Doc(symbol) abort
   " method. This mangles functions that end with a '?' which is common in
   " Clojure predicate functions.
   let symbol = substitute(a:symbol, '\\?', "?", "g")
+  let symbol = substitute(a:symbol, '\\!', "!", "g")
   let ns = plasmaplace#ns()
   let ns = s:qsym(ns)
   call plasmaplace#py(
