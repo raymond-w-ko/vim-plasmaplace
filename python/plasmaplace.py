@@ -119,9 +119,9 @@ def bdecode(f, char=None):
                 return f.read(i)
             i = 10 * i + int(char)
     elif char == "":
-        raise EOFError("unexpected end of bencode data")
+        raise EOFError("unexpected end of bdecode data")
     else:
-        raise TypeError("unexpected type " + char + "in bencode data")
+        raise TypeError("unexpected type " + char + "in bdecode data")
 
 
 def get_shadow_browser_target(project_path):
@@ -194,7 +194,13 @@ class REPL:
         return self.closed
 
     def close(self):
-        return self.socket.close()
+        if not self.closed:
+            self.closed = True
+            ret = self.socket.close()
+            self.socket = None
+            return ret
+        else:
+            return None
 
     def poll(self):
         pass
@@ -208,8 +214,8 @@ class REPL:
                     self.socket.sendall(bytes(payload, "UTF-8"))
                 else:
                     self.socket.sendall(payload)
-            except: # noqa
-                self.closed = True
+            except:  # noqa
+                self.close()
                 raise
 
     def _consume(self):
@@ -219,8 +225,17 @@ class REPL:
                 try:
                     ret = bdecode(f)
                 except EOFError:
-                    self.closed = True
-                    raise
+                    self.close()
+                    for _, job in self.jobs.items():
+                        job.input_queue.put(
+                            {"fatal_err": "plasmaplace EOFError"}, block=True
+                        )
+                except EOFError:
+                    self.close()
+                    for _, job in self.jobs.items():
+                        job.input_queue.put(
+                            {"fatal_err": "plasmaplace EOFError"}, block=True
+                        )
                 if isinstance(ret, dict) and "id" in ret:
                     id = ret["id"]
                     if id in self.jobs:
@@ -374,7 +389,10 @@ class BaseJob(threading.Thread):
                 self.out_str = out
                 break
             else:
-                if "out" in msg:
+                if "fatal_err" in msg:
+                    self.lines += [msg["fatal_err"]]
+                    break
+                elif "out" in msg:
                     self.out.append(extract_out_msg(msg))
                 elif "ex" in msg:
                     lines = ex_msg_to_lines(msg)
@@ -736,15 +754,17 @@ class CljfmtJob(BaseJob):
         template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
         code = template % self.code
         self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
         self.lines += [";; CODE:"]
         self.lines += [template % '"<buffer contents>"']
-        self.wait_for_output(eval_value=True, debug=False, silent=True)
+        try:
+            self.wait_for_output(eval_value=True, debug=False, silent=True)
 
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put(self.raw_value)
+            self.repl.append_to_scratch(self.lines)
+            self.repl.close_session(self.session)
+            self.repl.unregister_job(self)
+            self.wait_queue.put(self.raw_value)
+        except:  # noqa
+            self.wait_queue.put(None)
 
 
 def Cljfmt(code):
@@ -752,8 +772,11 @@ def Cljfmt(code):
     job = CljfmtJob(repl, code)
     job.start()
     formatted_code = job.wait()
-    vl = vim.bindeval("s:formatted_code")
-    vl.extend(formatted_code.split("\n"))
+    if not formatted_code:
+        pass
+    else:
+        vl = vim.bindeval("s:formatted_code")
+        vl.extend(formatted_code.split("\n"))
 
 
 ###############################################################################

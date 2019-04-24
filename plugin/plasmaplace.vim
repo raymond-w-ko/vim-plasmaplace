@@ -413,11 +413,13 @@ function! plasmaplace#Cljfmt() abort
   let s:formatted_code = []
   call plasmaplace#py(printf("plasmaplace.Cljfmt(%s)", s:pystr(code)))
 
-  " save cursor position and many other things
-  let l:curw = winsaveview()
-  call s:replace_buffer(s:formatted_code)
-  " restore our cursor/windows positions
-  call winrestview(l:curw)
+  if len(s:formatted_code) > 0
+    " save cursor position and many other things
+    let l:curw = winsaveview()
+    call s:replace_buffer(s:formatted_code)
+    " restore our cursor/windows positions
+    call winrestview(l:curw)
+  endif
 endfunction
 
 """"""""""""""""""""""""""""""""""""""""
