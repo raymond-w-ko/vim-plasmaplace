@@ -18,6 +18,18 @@ else:
     from Queue import Queue, Empty
 
 
+class FatalError:
+    def __init__(self):
+        pass
+
+
+class Exiting:
+    def __init__(self):
+        pass
+
+
+FATAL_ERROR = FatalError()
+EXITING = Exiting()
 REPLS = {}
 
 
@@ -70,7 +82,7 @@ def bencode(value):
     if isinstance(value, int):
         return "i" + value + "e"
     elif isinstance(value, str):
-        return str(len(value)) + ":" + value
+        return str(len(value.encode("utf-8"))) + ":" + value
     elif isinstance(value, list):
         return "l" + "".join(map(bencode, value)) + "e"
     elif isinstance(value, dict):
@@ -89,34 +101,34 @@ def bencode(value):
 def bdecode(f, char=None):
     if char is None:
         char = f.read(1)
-    if char == "l":
+    if char == b"l":
         _list = []
         while True:
             char = f.read(1)
-            if char == "e":
+            if char == b"e":
                 return _list
             _list.append(bdecode(f, char))
-    elif char == "d":
+    elif char == b"d":
         d = {}
         while True:
             char = f.read(1)
-            if char == "e":
+            if char == b"e":
                 return d
             key = bdecode(f, char)
             d[key] = bdecode(f)
-    elif char == "i":
+    elif char == b"i":
         i = ""
         while True:
             char = f.read(1)
-            if char == "e":
+            if char == b"e":
                 return int(i)
             i += char
     elif char.isdigit():
         i = int(char)
         while True:
             char = f.read(1)
-            if char == ":":
-                return f.read(i)
+            if char == b":":
+                return f.read(i).decode("utf-8")
             i = 10 * i + int(char)
     elif char == "":
         raise EOFError("unexpected end of bdecode data")
@@ -154,12 +166,13 @@ class REPL:
         s.connect((self.host, self.port))
         s.setblocking(1)
         self.socket = s
+        self.socket_file = self.socket.makefile(encoding=None, mode="rb")
         self.closed = False
 
         self.input_queue = Queue()
         self.output_queue = Queue()
-        t1 = threading.Thread(target=self._produce)
-        t2 = threading.Thread(target=self._consume)
+        t1 = threading.Thread(target=self._produce_to_remote, daemon=True)
+        t2 = threading.Thread(target=self._consume_from_remote, daemon=True)
         t1.daemon = True
         t1.start()
         t2.daemon = True
@@ -196,62 +209,73 @@ class REPL:
     def close(self):
         if not self.closed:
             self.closed = True
-            ret = self.socket.close()
+            self.socket.close()
+            # XXX: DO NOT DO THIS, THIS BLOCKS EXIT!!!
+            # self.socket_file.close()
+            self.socket_file = None
             self.socket = None
-            return ret
+
+            self.input_queue.put(EXITING)
         else:
             return None
 
     def poll(self):
         pass
 
-    def _produce(self):
+    def _produce_to_remote(self):
+        # we are inside a new thread here
         while True:
-            payload = self.input_queue.get(block=True)
-
             try:
+                payload = self.input_queue.get(block=True, timeout=1.0)
+                if payload == EXITING:
+                    return
                 if sys.version_info[0] >= 3:
                     self.socket.sendall(bytes(payload, "UTF-8"))
                 else:
                     self.socket.sendall(payload)
+            except Empty:
+                if self.closed or self.socket is None:
+                    self.input_queue = None
+                    return
             except:  # noqa
                 self.close()
-                raise
+                return
 
-    def _consume(self):
-        f = self.socket.makefile()
-        try:
-            while True:
-                try:
-                    ret = bdecode(f)
-                except EOFError:
-                    self.close()
-                    for _, job in self.jobs.items():
-                        job.input_queue.put(
-                            {"fatal_err": "plasmaplace EOFError"}, block=True
-                        )
-                except EOFError:
-                    self.close()
-                    for _, job in self.jobs.items():
-                        job.input_queue.put(
-                            {"fatal_err": "plasmaplace EOFError"}, block=True
-                        )
-                if isinstance(ret, dict) and "id" in ret:
-                    id = ret["id"]
-                    if id in self.jobs:
-                        job = self.jobs[id]
-                        job.input_queue.put(ret, block=True)
-                else:
-                    self.output_queue.put(ret, block=True)
-        finally:
-            f.close()
+    def _consume_from_remote(self):
+        # we are inside a new thread here
+        while True:
+            try:
+                ret = bdecode(self.socket_file)
+            except EOFError:
+                self.close()
+                self.output_queue.put(FATAL_ERROR, block=True)
+                for _, job in self.jobs.items():
+                    job.input_queue.put(FATAL_ERROR, block=True)
+                return
+            except TypeError:
+                self.close()
+                self.output_queue.put(FATAL_ERROR, block=True)
+                for _, job in self.jobs.items():
+                    job.input_queue.put(FATAL_ERROR, block=True)
+                return
+
+            if isinstance(ret, dict) and "id" in ret:
+                id = ret["id"]
+                if id in self.jobs:
+                    job = self.jobs[id]
+                    job.input_queue.put(ret, block=True)
+            else:
+                self.output_queue.put(ret, block=True)
 
     def _write(self, cmd):
         cmd = bencode(cmd)
+        print(cmd)
         self.input_queue.put(cmd, block=True)
 
     def _read(self, block=True):
-        ret = self.output_queue.get(block=block, timeout=1)
+        ret = self.output_queue.get(block=block, timeout=1.0)
+        if ret == FATAL_ERROR:
+            raise RuntimeError("An error occurred while reading from the REPL")
         return ret
 
     def eval(self, id, session, code):
