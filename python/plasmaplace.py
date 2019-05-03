@@ -55,27 +55,27 @@ def get_current_bufnr():
 ###############################################################################
 
 
-def vim_encode(data):
-    if isinstance(data, list):
-        return "[" + ",".join([vim_encode(x) for x in data]) + "]"
-    elif isinstance(data, dict):
-        return (
-            "{"
-            + ",".join([vim_encode(x) + ":" + vim_encode(y) for x, y in data.items()])
-            + "}"
-        )
-    elif isinstance(data, str):
-        str_list = []
-        for c in data:
-            if (0 <= ord(c) and ord(c) <= 31) or c == '"' or c == "\\":
-                str_list.append("\\%03o" % ord(c))
-            else:
-                str_list.append(c)
-        return '"' + "".join(str_list) + '"'
-    elif isinstance(data, int):
-        return str(data)
-    else:
-        raise TypeError("can't encode a " + type(data).__name__)
+# def vim_encode(data):
+#     if isinstance(data, list):
+#         return "[" + ",".join([vim_encode(x) for x in data]) + "]"
+#     elif isinstance(data, dict):
+#         return (
+#             "{"
+#             + ",".join([vim_encode(x) + ":" + vim_encode(y) for x, y in data.items()])
+#             + "}"
+#         )
+#     elif isinstance(data, str):
+#         str_list = []
+#         for c in data:
+#             if (0 <= ord(c) and ord(c) <= 31) or c == '"' or c == "\\":
+#                 str_list.append("\\%03o" % ord(c))
+#             else:
+#                 str_list.append(c)
+#         return '"' + "".join(str_list) + '"'
+#     elif isinstance(data, int):
+#         return str(data)
+#     else:
+#         raise TypeError("can't encode a " + type(data).__name__)
 
 
 def bencode(value):
@@ -117,11 +117,11 @@ def bdecode(f, char=None):
             key = bdecode(f, char)
             d[key] = bdecode(f)
     elif char == b"i":
-        i = ""
+        i = b""
         while True:
             char = f.read(1)
             if char == b"e":
-                return int(i)
+                return int(i.decode("utf-8"))
             i += char
     elif char.isdigit():
         i = int(char)
@@ -269,7 +269,6 @@ class REPL:
 
     def _write(self, cmd):
         cmd = bencode(cmd)
-        print(cmd)
         self.input_queue.put(cmd, block=True)
 
     def _read(self, block=True):
@@ -413,8 +412,8 @@ class BaseJob(threading.Thread):
                 self.out_str = out
                 break
             else:
-                if "fatal_err" in msg:
-                    self.lines += [msg["fatal_err"]]
+                if msg == FATAL_ERROR:
+                    self.lines += ["FATAL ERROR!"]
                     break
                 elif "out" in msg:
                     self.out.append(extract_out_msg(msg))
