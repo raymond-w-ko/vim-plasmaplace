@@ -3,6 +3,7 @@ try:
     import vim  # noqa
 except:  # noqa
     pass
+from pprint import pprint # noqa
 import re
 import os
 import sys
@@ -368,10 +369,13 @@ def err_msg_to_lines(msg):
 def value_msg_to_lines(msg, eval_value):
     lines = [";; VALUE:"]
     value = msg["value"]
-    if eval_value:
-        value = ast.literal_eval(value)
-    lines += value.split("\n")
-    return lines, value
+    if eval_value and value == "nil":
+        return None
+    else:
+        if eval_value:
+            value = ast.literal_eval(value)
+        lines += value.split("\n")
+        return lines, value
 
 
 def is_done_msg(msg):
@@ -401,6 +405,10 @@ class BaseJob(threading.Thread):
         self.lines = []
 
     def wait_for_output(self, silent=False, eval_value=False, debug=False):
+        self.raw_value = None
+        self.ex_happened = False
+        self.err_happened = False
+
         while True:
             msg = self.input_queue.get(block=True)
             if debug:
@@ -418,10 +426,12 @@ class BaseJob(threading.Thread):
                 elif "out" in msg:
                     self.out.append(extract_out_msg(msg))
                 elif "ex" in msg:
+                    self.ex_happened = True
                     lines = ex_msg_to_lines(msg)
                     if not silent:
                         self.lines += lines
                 elif "err" in msg:
+                    self.err_happened = True
                     lines = err_msg_to_lines(msg)
                     if not silent:
                         self.lines += lines
@@ -779,15 +789,15 @@ class CljfmtJob(BaseJob):
         self.repl.eval(self.id, self.session, code)
         self.lines += [";; CODE:"]
         self.lines += [template % '"<buffer contents>"']
-        try:
-            self.wait_for_output(eval_value=True, debug=False, silent=True)
+        self.wait_for_output(eval_value=True, debug=False, silent=False)
 
-            self.repl.append_to_scratch(self.lines)
-            self.repl.close_session(self.session)
-            self.repl.unregister_job(self)
-            self.wait_queue.put(self.raw_value)
-        except:  # noqa
+        self.repl.append_to_scratch(self.lines)
+        self.repl.close_session(self.session)
+        self.repl.unregister_job(self)
+        if self.ex_happened or self.err_happened:
             self.wait_queue.put(None)
+        else:
+            self.wait_queue.put(self.raw_value)
 
 
 def Cljfmt(code):
