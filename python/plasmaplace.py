@@ -789,7 +789,7 @@ class CljfmtJob(BaseJob):
         self.repl.eval(self.id, self.session, code)
         self.lines += [";; CODE:"]
         self.lines += [template % '"<buffer contents>"']
-        self.wait_for_output(eval_value=True, debug=False, silent=False)
+        self.wait_for_output(eval_value=True, debug=False, silent=True)
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
