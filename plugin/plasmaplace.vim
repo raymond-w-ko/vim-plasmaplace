@@ -31,6 +31,8 @@ endif
 let s:script_path = expand('<sfile>:p:h')
 let s:python_dir = fnamemodify(expand("<sfile>"), ":p:h:h") . "/python"
 let s:repl_scratch_buffers = {}
+let s:last_eval_ns = ""
+let s:last_eval_form = ""
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " python
@@ -209,6 +211,11 @@ endfunction
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " operator
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+function! s:EvalLastForm() abort
+  let cmd = printf("plasmaplace.Eval(%s, %s)", s:last_eval_ns, s:last_eval_form)
+  call plasmaplace#py(cmd)
+endfunction
+
 function! s:EvalMotion(type, ...) abort
   let sel_save = &selection
   let &selection = "inclusive"
@@ -223,7 +230,9 @@ function! s:EvalMotion(type, ...) abort
   endif
 
   let ns = s:qsym(plasmaplace#ns())
-  let cmd = printf("plasmaplace.Eval(%s, %s)", s:pystr(ns), s:pystr(@@))
+  let s:last_eval_ns = s:pystr(ns)
+  let s:last_eval_form = s:pystr(@@)
+  let cmd = printf("plasmaplace.Eval(%s, %s)", s:last_eval_ns, s:last_eval_form)
   call plasmaplace#py(cmd)
 
   let &selection = sel_save
@@ -464,6 +473,7 @@ function! s:setup_keybinds() abort
   " nmap <buffer> cqc <Plug>PlasmaplaceShowRepl
   nmap <buffer><silent> cp :set opfunc=<SID>EvalMotion<CR>g@
   vmap <buffer><silent> cp :<C-U>call <SID>EvalMotion(visualmode(), 1)<CR>
+  nmap <buffer><silent> cpl :call <SID>EvalLastForm()<CR>
 
   " macro expansion
   nmap <buffer><silent> cm :set opfunc=<SID>Macroexpand<CR>g@
