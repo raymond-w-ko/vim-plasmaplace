@@ -367,7 +367,7 @@ def err_msg_to_lines(msg):
 
 
 def value_msg_to_lines(msg, eval_value):
-    lines = [";; VALUE:"]
+    lines = []
     value = msg["value"]
     if eval_value and value == "nil":
         return None
@@ -438,7 +438,33 @@ class BaseJob(threading.Thread):
                 elif "value" in msg:
                     lines, raw_value = value_msg_to_lines(msg, eval_value)
                     if not silent:
+                        self.lines += [";; VALUE:"]
                         self.lines += lines
+                    self.raw_value = raw_value
+                else:
+                    # ignore silent due to probably an error or unhandled case
+                    self.lines += [str(msg)]
+
+    def report_exception(self):
+        if not self.ex_happened:
+            return
+
+        self.lines += [";; STACK TRACE"]
+        self.repl.eval(self.id, self.session, "*e")
+        while True:
+            msg = self.input_queue.get(block=True)
+            if is_done_msg(msg):
+                out = "".join(self.out)
+                self.out_str = out
+                break
+            else:
+                if msg == FATAL_ERROR:
+                    self.lines += ["FATAL ERROR!"]
+                    break
+                elif "value" in msg:
+                    eval_value = False
+                    lines, raw_value = value_msg_to_lines(msg, eval_value)
+                    self.lines += lines
                     self.raw_value = raw_value
                 else:
                     # ignore silent due to probably an error or unhandled case
@@ -566,6 +592,7 @@ class EvalJob(BaseJob):
         self.lines += [";; CODE:"]
         self.lines += code
         self.wait_for_output(eval_value=False, debug=False)
+        self.report_exception()
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
@@ -593,6 +620,7 @@ class RequireJob(BaseJob):
         self.lines += [";; CODE:"]
         self.lines += code
         self.wait_for_output(eval_value=False, debug=False)
+        self.report_exception()
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
@@ -619,6 +647,7 @@ class RunTestsJob(BaseJob):
         self.lines += [";; CODE:"]
         self.lines += code
         self.wait_for_output(eval_value=True, debug=False)
+        self.report_exception()
 
         self.repl.append_to_scratch(self.lines)
         self.repl.close_session(self.session)
