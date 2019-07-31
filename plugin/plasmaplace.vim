@@ -499,4 +499,7 @@ augroup plasmaplace
   autocmd VimEnter * call s:VimEnter()
   autocmd VimLeave * call s:cleanup_active_sessions()
   autocmd InsertLeave,BufEnter clojure call s:FlushScratchBuffer()
+  autocmd BufWritePost *.clj call s:Require(0, 1, "")
+  autocmd BufWritePost *.cljs call s:Require(0, 1, "")
+  autocmd BufWritePost *.cljc call s:Require(0, 1, "")
 augroup END
