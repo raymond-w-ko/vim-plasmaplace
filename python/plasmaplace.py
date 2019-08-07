@@ -692,10 +692,13 @@ def get_project_key():
 
 
 def get_nrepl_port(project_path):
-    path = os.path.join(project_path, ".nrepl-port")
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return f.read().strip()
+    candidates = [".nrepl-port", ".shadow-cljs/nrepl.port"]
+    for filename in candidates:
+        path = os.path.join(project_path, filename)
+        print(path)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read().strip()
     raise Exception("plasmaplace: could not determine nREPL port number")
 
 
