@@ -285,7 +285,7 @@ endfunction
 " main
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 function! s:Require(bang, echo, ns) abort
-  if expand("%:e" ==# "cljs")
+  if expand("%:e") ==# "cljs"
     return
   endif
   if &autowrite || &autowriteall
