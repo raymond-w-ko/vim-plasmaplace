@@ -746,6 +746,8 @@ def Eval(ns, form):
 
 def Require(ns, reload_level):
     repl = create_or_get_repl()
+    if repl.project_type == "shadow-cljs":
+        return
     job = RequireJob(repl, ns, reload_level)
     job.start()
     job.wait()
