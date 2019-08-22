@@ -695,7 +695,6 @@ def get_nrepl_port(project_path):
     candidates = [".nrepl-port", ".shadow-cljs/nrepl.port"]
     for filename in candidates:
         path = os.path.join(project_path, filename)
-        print(path)
         if os.path.exists(path):
             with open(path, "r") as f:
                 return f.read().strip()
