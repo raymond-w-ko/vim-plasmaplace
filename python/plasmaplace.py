@@ -9,14 +9,8 @@ import os
 import sys
 import socket
 import ast
-
-# import select
+from queue import Queue, Empty
 import threading
-
-if sys.version_info[0] >= 3:
-    from queue import Queue, Empty
-else:
-    from Queue import Queue, Empty
 
 
 class FatalError:
