@@ -285,9 +285,9 @@ endfunction
 " main
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 function! s:Require(bang, echo, ns) abort
-  if expand("%:e") ==# "cljs"
-    return
-  endif
+  if expand("%:e") ==# "cljs" | return | endif
+  if expand("%") ==# "project.clj" | return | endif
+
   if &autowrite || &autowriteall
     silent! wall
   endif
