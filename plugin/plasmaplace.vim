@@ -73,9 +73,13 @@ for py_ver in s:python_version
   endif
 endfor
 function! plasmaplace#py(...)
-  for cmd in a:000
-    execute s:_py . " " . cmd
-  endfor
+  try
+    for cmd in a:000
+      execute s:_py . " " . cmd
+    endfor
+  catch
+    echoerr v:exception
+  endtry
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -149,7 +153,7 @@ function! s:create_or_get_scratch(project_key) abort
 
   let buf_name = "SCRATCH_".a:project_key
   execute g:plasmaplace_scratch_split_cmd . " " . buf_name
-  setlocal filetype=plasmaplace
+  setlocal filetype=clojure
   setlocal bufhidden=
   setlocal buflisted
   setlocal buftype=nofile
@@ -157,7 +161,8 @@ function! s:create_or_get_scratch(project_key) abort
   call s:set_local_window_options()
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
-  call setbufline(bnum, 1, "Loading Clojure REPL...")
+  call setbufvar(bnum, "ale_enabled", 0)
+  call setbufline(bnum, 1, ";; Loading Clojure REPL...")
   nnoremap <buffer> q :q<CR>
   nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum

@@ -6,7 +6,6 @@ except:  # noqa
 from pprint import pprint # noqa
 import re
 import os
-import sys
 import socket
 import ast
 from queue import Queue, Empty
@@ -48,29 +47,6 @@ def get_current_bufnr():
 
 
 ###############################################################################
-
-
-# def vim_encode(data):
-#     if isinstance(data, list):
-#         return "[" + ",".join([vim_encode(x) for x in data]) + "]"
-#     elif isinstance(data, dict):
-#         return (
-#             "{"
-#             + ",".join([vim_encode(x) + ":" + vim_encode(y) for x, y in data.items()])
-#             + "}"
-#         )
-#     elif isinstance(data, str):
-#         str_list = []
-#         for c in data:
-#             if (0 <= ord(c) and ord(c) <= 31) or c == '"' or c == "\\":
-#                 str_list.append("\\%03o" % ord(c))
-#             else:
-#                 str_list.append(c)
-#         return '"' + "".join(str_list) + '"'
-#     elif isinstance(data, int):
-#         return str(data)
-#     else:
-#         raise TypeError("can't encode a " + type(data).__name__)
 
 
 def bencode(value):
@@ -164,10 +140,10 @@ class REPL:
         self.socket_file = self.socket.makefile(encoding=None, mode="rb")
         self.closed = False
 
-        self.input_queue = Queue()
-        self.output_queue = Queue()
-        t1 = threading.Thread(target=self._produce_to_remote, daemon=True)
-        t2 = threading.Thread(target=self._consume_from_remote, daemon=True)
+        self.to_remote_queue = Queue()
+        self.from_remote_queue = Queue()
+        t1 = threading.Thread(target=self._produce_to_remote_loop, daemon=True)
+        t2 = threading.Thread(target=self._consume_from_remote_loop, daemon=True)
         t1.daemon = True
         t1.start()
         t2.daemon = True
@@ -188,11 +164,11 @@ class REPL:
                 "(shadow/nrepl-select %s)" % (shadow_browser_target),
             )
 
-        startup_lines = ["connected to nREPL"]
-        startup_lines += ["host: " + self.host]
-        startup_lines += ["port: " + str(self.port)]
-        startup_lines += ["existing sessions: " + str(self.existing_sessions)]
-        startup_lines += ["current session: " + self.root_session]
+        startup_lines = [";; connected to nREPL"]
+        startup_lines += [";; host: " + self.host]
+        startup_lines += [";; port: " + str(self.port)]
+        startup_lines += [";; existing sessions: " + str(self.existing_sessions)]
+        startup_lines += [";; current session: " + self.root_session]
         self.to_scratch(startup_lines)
 
         # NOTE: does not trigger!
@@ -210,64 +186,61 @@ class REPL:
             self.socket_file = None
             self.socket = None
 
-            self.input_queue.put(EXITING)
+            self.to_remote_queue.put(EXITING)
         else:
             return None
 
-    def poll(self):
-        pass
+    def broadcast_to_jobs(self, msg):
+        for _, job in self.jobs.items():
+            job.from_remote_queue.put(msg, block=True)
 
-    def _produce_to_remote(self):
-        # we are inside a new thread here
+    def send_to_job(self, id, msg):
+        if id not in self.jobs:
+            return
+        job = self.jobs[id]
+        job.from_remote_queue.put(msg, block=True)
+
+    # we are inside a new thread here
+    def _produce_to_remote_loop(self):
         while True:
             try:
-                payload = self.input_queue.get(block=True, timeout=1.0)
+                if self.to_remote_queue is None:
+                    return
+                payload = self.to_remote_queue.get(block=True, timeout=1.0)
                 if payload == EXITING:
                     return
-                if sys.version_info[0] >= 3:
-                    self.socket.sendall(bytes(payload, "UTF-8"))
-                else:
-                    self.socket.sendall(payload)
+                self.socket.sendall(bytes(payload, "UTF-8"))
             except Empty:
                 if self.closed or self.socket is None:
-                    self.input_queue = None
+                    self.to_remote_queue = None
                     return
             except:  # noqa
                 self.close()
                 return
 
-    def _consume_from_remote(self):
-        # we are inside a new thread here
+    # we are inside a new thread here
+    def _consume_from_remote_loop(self):
         while True:
             try:
                 ret = bdecode(self.socket_file)
-            except EOFError:
+            except (EOFError, TypeError):
                 self.close()
-                self.output_queue.put(FATAL_ERROR, block=True)
-                for _, job in self.jobs.items():
-                    job.input_queue.put(FATAL_ERROR, block=True)
-                return
-            except TypeError:
-                self.close()
-                self.output_queue.put(FATAL_ERROR, block=True)
-                for _, job in self.jobs.items():
-                    job.input_queue.put(FATAL_ERROR, block=True)
+                self.from_remote_queue.put(FATAL_ERROR, block=True)
+                self.broadcast_to_jobs(FATAL_ERROR)
                 return
 
             if isinstance(ret, dict) and "id" in ret:
                 id = ret["id"]
-                if id in self.jobs:
-                    job = self.jobs[id]
-                    job.input_queue.put(ret, block=True)
+                self.send_to_job(id, ret)
             else:
-                self.output_queue.put(ret, block=True)
+                self.from_remote_queue.put(ret, block=True)
 
     def _write(self, cmd):
         cmd = bencode(cmd)
-        self.input_queue.put(cmd, block=True)
+        self.to_remote_queue.put(cmd, block=True)
 
     def _read(self, block=True):
-        ret = self.output_queue.get(block=block, timeout=1.0)
+        ret = self.from_remote_queue.get(block=block, timeout=1.0)
         if ret == FATAL_ERROR:
             raise RuntimeError("An error occurred while reading from the REPL")
         return ret
@@ -389,12 +362,8 @@ class BaseJob(threading.Thread):
 
         self.repl = repl
 
-        self.input_queue = Queue()
+        self.from_remote_queue = Queue()
         self.wait_queue = Queue()
-
-        self.init_output()
-
-    def init_output(self):
         self.out = []
         self.lines = []
 
@@ -404,7 +373,7 @@ class BaseJob(threading.Thread):
         self.err_happened = False
 
         while True:
-            msg = self.input_queue.get(block=True)
+            msg = self.from_remote_queue.get(block=True)
             if debug:
                 print(msg)
             if is_done_msg(msg):
@@ -446,7 +415,7 @@ class BaseJob(threading.Thread):
         self.lines += [";; STACK TRACE"]
         self.repl.eval(self.id, self.session, "*e")
         while True:
-            msg = self.input_queue.get(block=True)
+            msg = self.from_remote_queue.get(block=True)
             if is_done_msg(msg):
                 out = "".join(self.out)
                 self.out_str = out
