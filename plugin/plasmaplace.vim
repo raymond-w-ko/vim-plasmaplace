@@ -30,65 +30,14 @@ endif
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 let s:script_path = expand('<sfile>:p:h')
 let s:python_dir = fnamemodify(expand("<sfile>"), ":p:h:h") . "/python"
+let s:daemon_path = s:python_dir . "/plasmaplace.py"
 let s:repl_scratch_buffers = {}
+let s:jobs = {}
+let s:channels = {}
+let s:channel_id_to_project_key = {}
 let s:last_eval_ns = ""
 let s:last_eval_form = ""
 
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" python
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-if !has("python") && !has("python3")
-  echom "vim-plasmaplace plugin requires +python or +python3 Vim feature"
-  finish
-endif
-if exists("g:plasmaplace_python_version_preference")
-  if g:fireplace_python_version_preference == 2:
-    let s:python_version = ["2", "3"]
-  elseif g:fireplace_python_version_preference == 3:
-    let s:python_version = ["3", "2"]
-  endif
-else
-  let s:python_version = ["3", "2"]
-endif
-for py_ver in s:python_version
-  let _py = "python" . py_ver
-  if has(_py)
-    let s:_py = _py
-    if py_ver == 2
-      let s:_pyfile = "pyfile"
-    elseif py_ver == 3
-      let s:_pyfile = "py3file"
-    endif
-
-    " most distributions have an explicitly name Python like /usr/bin/python3
-    " and /usr/bin/python2
-    if executable(_py)
-      let s:_pyexe = _py
-    elseif executable("python")
-      let s:_pyexe = "python"
-    else
-      let s:_pyexe = ""
-    endif
-    break
-  endif
-endfor
-function! plasmaplace#py(...)
-  try
-    for cmd in a:000
-      execute s:_py . " " . cmd
-    endfor
-  catch
-    echoerr v:exception
-  endtry
-endfunction
-
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" load plasmaplace python code
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-call plasmaplace#py(
-    \ printf('sys.path.insert(0, "%s")', escape(s:python_dir, '\"')),
-    \ "import plasmaplace",
-    \ )
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " utils
@@ -139,6 +88,43 @@ function! plasmaplace#ns() abort
   endif
 endfunction
 
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+function! s:get_project_type(path)
+  if filereadable(a:path . "/project.clj")
+    return "default"
+  elseif filereadable(a:path . "/shadow-cljs.edn")
+    return "shadow-cljs"
+  elseif filereadable(a:path . "/deps.edn")
+    return "default"
+  endif
+  return 0
+endfunction
+
+function! s:get_project_path()
+  let path = expand("%:p:h")
+  let prev_path = path
+  while 1
+    let project_type = s:get_project_type(path)
+    if type(project_type) == v:t_string
+      return path
+    endif
+    let prev_path = path
+    let path = fnamemodify(path, ':h')
+    if path == prev_path
+      throw "plasmaplace: could not determine project directory"
+    endif
+  endwhile
+endfunction
+
+function! s:get_project_key()
+  let project_path = s:get_project_path()
+  let tokens = split(project_path, '\v\\|\/')
+  let token = filter(tokens, 'strlen(v:val) > 0')
+  let tokens = reverse(tokens)
+  return join(tokens, "_")
+endfunction
+
 function! s:set_local_window_options()
   setlocal foldcolumn=0
   setlocal nofoldenable
@@ -164,11 +150,109 @@ function! s:create_or_get_scratch(project_key) abort
   call setbufvar(bnum, "ale_enabled", 0)
   call setbufline(bnum, 1, ";; Loading Clojure REPL...")
   nnoremap <buffer> q :q<CR>
+  nnoremap <buffer> gq :q<CR>
   nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum
   wincmd p
   redraw
   return bnum
+endfunction
+
+function! s:ch_get_id(ch)
+  let id = substitute(a:ch, '^channel \(\d\+\) \(open\|closed\)$', '\1', '')
+endfunction
+
+function! plasmaplace#__job_callback(ch, msg)
+  try
+    let ch_id = s:ch_get_id(a:ch)
+    let project_key = s:channel_id_to_project_key[ch_id]
+    call s:handle_message(project_key, a:msg)
+  catch E716
+    " No-op if data isn't ready
+  endtry
+endfunction
+
+function! plasmaplace#__close_callback(ch)
+    let ch_id = s:ch_get_id(a:ch)
+    let project_key = s:channel_id_to_project_key[ch_id]
+    call remove(s:channel_id_to_project_key, ch_id)
+    call remove(s:jobs, project_key)
+    call remove(s:channels, project_key)
+		echohl WarningMsg
+    echo printf("plasmaplace daemon died for project: %s", project_key)
+    echohl None
+endfunction
+
+" a lot of the wrapper code is adapted from metakirby5/codi.vim
+function! s:handle_message(project_key, msg)
+  " save for later
+  let ret_bufnr = bufnr('%')
+  let ret_mode = mode()
+  let ret_line = line('.')
+  let ret_col = col('.')
+
+  let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
+  let lines = a:msg["lines"]
+  call appendbufline(scratch_bufnr, "$", lines)
+
+  " restore mode and position
+  if ret_mode =~ '[vV]'
+    keepjumps normal! gv
+  elseif ret_mode =~ '[sS]'
+    exe "keepjumps normal! gv\<c-g>"
+  endif
+  keepjumps call cursor(ret_line, ret_col)
+endfunction
+
+function! s:create_or_get_job(project_key)
+  if has_key(s:jobs, a:project_key)
+    return s:jobs[a:project_key]
+  endif
+
+  let project_path = s:get_project_path()
+  let project_type = s:get_project_type(project_path)
+
+  let port_file_candidates = [".nrepl-port", ".shadow-cljs/nrepl.port"]
+  let port_file_path = 0
+  for filename in port_file_candidates
+    let path = project_path . "/" . filename
+    if filereadable(path)
+      let port_file_path = path
+      break
+    endif
+  endfor
+  if type(port_file_path) != v:t_string
+    throw "plasmaplace: could not determine nREPL port file"
+  endif
+
+  let options = {
+      \ "mode": "json",
+      \ "cwd": s:get_project_path(),
+      \ "callback": "plasmaplace#__job_callback",
+      \ "close_cb": "plasmaplace#__close_callback",
+      \ "err_mode": "raw",
+      \ "err_io": "file",
+      \ "err_name": "/tmp/plasmaplace.log",
+      \ }
+  let job = job_start(["python3", s:daemon_path, port_file_path, project_type], options)
+  let s:jobs[a:project_key] = job
+  let ch = job_getchannel(job)
+  let s:channels[a:project_key] = ch
+  let ch_id = s:ch_get_id(ch)
+  let s:channel_id_to_project_key[ch_id] = a:project_key
+
+  let response = ch_evalexpr(ch, ["init"])
+  call plasmaplace#__job_callback(ch, response)
+endfunction
+
+function! s:repl(cmd)
+  let project_key = s:get_project_key()
+  let scratch = s:create_or_get_scratch(project_key)
+  let job = s:create_or_get_job(project_key)
+  let ch = s:channels[project_key]
+
+  let response = ch_evalexpr(ch, a:cmd)
+  call plasmaplace#__job_callback(ch, response)
 endfunction
 
 function! s:window_in_tab(aliases, windows)
@@ -208,11 +292,6 @@ function! plasmaplace#center_scratch_buf(scratch, top_line_num) abort
   endif
 endfunction
 
-" create or get the buffer number that represents the REPL
-function! s:create_or_get_repl() abort
-  call plasmaplace#py("plasmaplace.create_or_get_repl()")
-endfunction
-
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " operator
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -235,10 +314,9 @@ function! s:EvalMotion(type, ...) abort
   endif
 
   let ns = s:qsym(plasmaplace#ns())
-  let s:last_eval_ns = s:pystr(ns)
-  let s:last_eval_form = s:pystr(@@)
-  let cmd = printf("plasmaplace.Eval(%s, %s)", s:last_eval_ns, s:last_eval_form)
-  call plasmaplace#py(cmd)
+  let s:last_eval_ns = ns
+  let s:last_eval_form = @@
+  call s:repl(["eval", s:last_eval_ns, s:last_eval_form])
 
   let &selection = sel_save
   let @@ = reg_save
@@ -258,8 +336,8 @@ function! s:Macroexpand(type, ...) abort
   endif
 
   let ns = s:qsym(plasmaplace#ns())
-  let cmd = printf("plasmaplace.Macroexpand(%s, %s)", s:pystr(ns), s:pystr(@@))
-  call plasmaplace#py(cmd)
+
+  call s:repl(["macroexpand", ns, @@])
 
   let &selection = sel_save
   let @@ = reg_save
@@ -278,9 +356,7 @@ function! s:Macroexpand1(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let ns = s:qsym(plasmaplace#ns())
-  let cmd = printf("plasmaplace.Macroexpand1(%s, %s)", s:pystr(ns), s:pystr(@@))
-  call plasmaplace#py(cmd)
+  call s:repl(["macroexpand1", ns, @@])
 
   let &selection = sel_save
   let @@ = reg_save
@@ -308,8 +384,8 @@ function! s:Require(bang, echo, ns) abort
   endif
   let ns = s:qsym(ns)
 
-  let cmd = printf("plasmaplace.Require(%s, %s)", s:pystr(ns), s:pystr(reload_level))
-  call plasmaplace#py(cmd)
+  let cmd = printf("plasmaplace.Require(%s, %s)", ns, reload_level)
+  call s:repl(["require", ns, reload_level])
   if a:echo
     echo cmd
   endif
@@ -328,8 +404,7 @@ function! s:Doc(symbol) abort
   let symbol = substitute(symbol, '\\\*', "*", "g")
   let ns = plasmaplace#ns()
   let ns = s:qsym(ns)
-  call plasmaplace#py(
-      \ printf('plasmaplace.Doc(%s, %s)',  s:str(ns), s:str(symbol)))
+  call s:repl(["doc", ns, symbol])
   return ''
 endfunction
 
@@ -439,16 +514,8 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
-function! s:VimEnter() abort
-  call plasmaplace#py("plasmaplace.VimEnter()")
-endfunction
-
-function! s:cleanup_active_sessions() abort
-  call plasmaplace#py("plasmaplace.cleanup_active_sessions()")
-endfunction
-
 function! s:DeleteOtherNreplSessions() abort
-  call plasmaplace#py("plasmaplace.DeleteOtherNreplSessions()")
+  call s:repl(["delete_other_nrepl_sessions"])
 endfunction
 
 function! s:FlushScratchBuffer() abort
@@ -502,9 +569,6 @@ augroup plasmaplace
   autocmd!
   autocmd FileType clojure call s:setup_commands()
   autocmd FileType clojure call s:setup_keybinds()
-  autocmd VimEnter * call s:VimEnter()
-  autocmd VimLeave * call s:cleanup_active_sessions()
-  autocmd InsertLeave,BufEnter clojure call s:FlushScratchBuffer()
   autocmd BufWritePost *.clj call s:Require(0, 1, "")
   autocmd BufWritePost *.cljs call s:Require(0, 1, "")
   autocmd BufWritePost *.cljc call s:Require(0, 1, "")

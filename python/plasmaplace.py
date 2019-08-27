@@ -1,815 +1,162 @@
 #!/usr/bin/env python3
-try:
-    import vim  # noqa
-except:  # noqa
-    pass
-from pprint import pprint # noqa
+from pprint import pprint  # noqa
+import sys
+import time
 import re
 import os
 import socket
-import ast
-from queue import Queue, Empty
+import json
+import select
 import threading
+from queue import Queue
 
+from plasmaplace_utils import bencode, bdecode, get_shadow_browser_target
+import plasmaplace_commands
 
-class FatalError:
-    def __init__(self):
-        pass
+PROJECT_PATH = os.getcwd()
+PROJECT_TYPE = None
+SOCKET = None
+SOCKET_FILE = None
 
+TO_REPL = Queue()
+TO_VIM = Queue()
 
-class Exiting:
-    def __init__(self):
-        pass
-
-
-FATAL_ERROR = FatalError()
-EXITING = Exiting()
-REPLS = {}
-
-
-def spawn_thread(f):
-    t = threading.Thread(target=f)
-    t.daemon = True
-    t.start()
+EXISTING_SESSIONS = None
+ROOT_SESSION = None
 
 
 ###############################################################################
 
+def _debug(obj):
+    s = str(obj)
+    print(s, file=sys.stderr)
+    if s[-1] != "\n":
+        print("", file=sys.stderr)
+    sys.stderr.flush()
 
-def get_current_buf_path():
-    vim.command('let current_buf_path = expand("%:p:h")')
-    return vim.eval("current_buf_path")
 
+def _write_to_nrepl_loop():
+    global TO_REPL
+    global SOCKET
 
-def get_current_bufnr():
-    vim.command('let current_bufnr = bufnr("%")')
-    return vim.eval("current_bufnr")
-
-
-###############################################################################
-
-
-def bencode(value):
-    if isinstance(value, int):
-        return "i" + value + "e"
-    elif isinstance(value, str):
-        return str(len(value.encode("utf-8"))) + ":" + value
-    elif isinstance(value, list):
-        return "l" + "".join(map(bencode, value)) + "e"
-    elif isinstance(value, dict):
-        enc = ["d"]
-        keys = list(value.keys())
-        keys.sort()
-        for k in keys:
-            enc.append(bencode(k))
-            enc.append(bencode(value[k]))
-        enc.append("e")
-        return "".join(enc)
-    else:
-        raise TypeError("can't bencode " + value)
-
-
-def bdecode(f, char=None):
-    if char is None:
-        char = f.read(1)
-    if char == b"l":
-        _list = []
-        while True:
-            char = f.read(1)
-            if char == b"e":
-                return _list
-            _list.append(bdecode(f, char))
-    elif char == b"d":
-        d = {}
-        while True:
-            char = f.read(1)
-            if char == b"e":
-                return d
-            key = bdecode(f, char)
-            d[key] = bdecode(f)
-    elif char == b"i":
-        i = b""
-        while True:
-            char = f.read(1)
-            if char == b"e":
-                return int(i.decode("utf-8"))
-            i += char
-    elif char.isdigit():
-        i = int(char)
-        while True:
-            char = f.read(1)
-            if char == b":":
-                return f.read(i).decode("utf-8")
-            i = 10 * i + int(char)
-    elif char == "":
-        raise EOFError("unexpected end of bdecode data")
-    else:
-        raise TypeError("unexpected type " + char + "in bdecode data")
-
-
-def get_shadow_browser_target(project_path):
-    path = os.path.join(project_path, "shadow-cljs.edn")
-    with open(path, "r") as f:
-        code = f.read()
-    code = code.replace("\n", " ")
-    idx = code.index(":builds")
-    code = code[idx:]
-    m = re.search(r"\s*(\:\w+)\s*\{\:target\s+\:browser.*", code)
-    return m.group(1)
-
-
-class REPL:
-    def __init__(self, project_key, project_path, host, port):
-        self.project_key = project_key
-        self.project_path = project_path
-        self.project_type = get_project_type(self.project_path)
-        self.host = host
-        self.port = int(port)
-
-        self.pending_lines = Queue()
-        self.jobs = {}
-
-        cmd = 'let scratch_buf = s:create_or_get_scratch("%s")' % project_key
-        vim.command(cmd)
-        self.scratch_buf = int(vim.eval("scratch_buf"))
-
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((self.host, self.port))
-        s.setblocking(1)
-        self.socket = s
-        self.socket_file = self.socket.makefile(encoding=None, mode="rb")
-        self.closed = False
-
-        self.to_remote_queue = Queue()
-        self.from_remote_queue = Queue()
-        t1 = threading.Thread(target=self._produce_to_remote_loop, daemon=True)
-        t2 = threading.Thread(target=self._consume_from_remote_loop, daemon=True)
-        t1.daemon = True
-        t1.start()
-        t2.daemon = True
-        t2.start()
-
-        self._write({"op": "ls-sessions"})
-        sessions = self._read()
-        self.existing_sessions = sessions["sessions"]
-
-        self.root_session = None
-        self.root_session = self.acquire_session()
-
-        if self.project_type == "shadow-cljs":
-            shadow_browser_target = get_shadow_browser_target(project_path)
-            self.eval(
-                "switch-to-cljs-repl",
-                self.root_session,
-                "(shadow/nrepl-select %s)" % (shadow_browser_target),
-            )
-
-        startup_lines = [";; connected to nREPL"]
-        startup_lines += [";; host: " + self.host]
-        startup_lines += [";; port: " + str(self.port)]
-        startup_lines += [";; existing sessions: " + str(self.existing_sessions)]
-        startup_lines += [";; current session: " + self.root_session]
-        self.to_scratch(startup_lines)
-
-        # NOTE: does not trigger!
-        # atexit.register(self.close_session, self.root_session)
-
-    def is_closed(self):
-        return self.closed
-
-    def close(self):
-        if not self.closed:
-            self.closed = True
-            self.socket.close()
-            # XXX: DO NOT DO THIS, THIS BLOCKS EXIT!!!
-            # self.socket_file.close()
-            self.socket_file = None
-            self.socket = None
-
-            self.to_remote_queue.put(EXITING)
-        else:
-            return None
-
-    def broadcast_to_jobs(self, msg):
-        for _, job in self.jobs.items():
-            job.from_remote_queue.put(msg, block=True)
-
-    def send_to_job(self, id, msg):
-        if id not in self.jobs:
-            return
-        job = self.jobs[id]
-        job.from_remote_queue.put(msg, block=True)
-
-    # we are inside a new thread here
-    def _produce_to_remote_loop(self):
-        while True:
-            try:
-                if self.to_remote_queue is None:
-                    return
-                payload = self.to_remote_queue.get(block=True, timeout=1.0)
-                if payload == EXITING:
-                    return
-                self.socket.sendall(bytes(payload, "UTF-8"))
-            except Empty:
-                if self.closed or self.socket is None:
-                    self.to_remote_queue = None
-                    return
-            except:  # noqa
-                self.close()
-                return
-
-    # we are inside a new thread here
-    def _consume_from_remote_loop(self):
-        while True:
-            try:
-                ret = bdecode(self.socket_file)
-            except (EOFError, TypeError):
-                self.close()
-                self.from_remote_queue.put(FATAL_ERROR, block=True)
-                self.broadcast_to_jobs(FATAL_ERROR)
-                return
-
-            if isinstance(ret, dict) and "id" in ret:
-                id = ret["id"]
-                self.send_to_job(id, ret)
-            else:
-                self.from_remote_queue.put(ret, block=True)
-
-    def _write(self, cmd):
-        cmd = bencode(cmd)
-        self.to_remote_queue.put(cmd, block=True)
-
-    def _read(self, block=True):
-        ret = self.from_remote_queue.get(block=block, timeout=1.0)
-        if ret == FATAL_ERROR:
-            raise RuntimeError("An error occurred while reading from the REPL")
-        return ret
-
-    def eval(self, id, session, code):
-        payload = {"op": "eval", "session": session, "id": id, "code": code}
-        self._write(payload)
-
-    def to_scratch(self, lines):
-        scratch_buf = self.scratch_buf
-        b = vim.buffers[scratch_buf]
-        top_line_num = len(b) + 1
-        b.append(lines)
-        vim.command(
-            "call plasmaplace#center_scratch_buf(%d, %d)" % (scratch_buf, top_line_num)
-        )
-
-    def acquire_session(self):
-        cmd = {"op": "clone"}
-        if self.root_session is not None:
-            cmd["session"] = self.root_session
-        self._write(cmd)
-        msg = self._read()
-        return msg["new-session"]
-
-    def close_session(self, session, exiting=False):
-        if session == self.root_session and not exiting:
-            return
-        self._write({"op": "close", "session": session})
-        msg = self._read()
-        assert (
-            "status" in msg
-            and msg["status"][0] == "done"
-            and msg["status"][1] == "session-closed"
-        )
-
-    def register_job(self, job):
-        id = job.id
-        self.jobs[id] = job
-
-    def unregister_job(self, job):
-        id = job.id
-        del self.jobs[id]
-
-    def append_to_scratch(self, lines):
-        self.pending_lines.put(lines)
-
-    def wait_for_scratch_update(self, timeout=5.0):
-        try:
-            lines = self.pending_lines.get(block=True, timeout=timeout)
-            self.to_scratch(lines)
-        except Empty:
-            if timeout > 0.0:
-                print("plasmaplace timed out while waiting for scratch update")
-
-    def delete_other_nrepl_sessions(self):
-        for session in self.existing_sessions:
-            self.close_session(session)
-
-
-JOB_COUNTER = 0
-
-
-def fetch_job_number():
-    global JOB_COUNTER
-    n = JOB_COUNTER
-    JOB_COUNTER += 1
-    return str(n)
-
-
-def extract_out_msg(msg):
-    return msg["out"]
-
-
-def out_to_lines(out):
-    lines = [";; OUT:"]
-    lines += out.split("\n")
-    return lines
-
-
-def ex_msg_to_lines(msg):
-    lines = [";; EX:"]
-    lines += msg["ex"].split("\n")
-    return lines
-
-
-def err_msg_to_lines(msg):
-    lines = [";; ERR:"]
-    lines += msg["err"].split("\n")
-    return lines
-
-
-def value_msg_to_lines(msg, eval_value):
-    lines = []
-    value = msg["value"]
-    if eval_value and value == "nil":
-        return None
-    else:
-        if eval_value:
-            value = ast.literal_eval(value)
-        lines += value.split("\n")
-        return lines, value
-
-
-def is_done_msg(msg):
-    if not isinstance(msg, dict):
-        return False
-    if "status" not in msg:
-        return False
-    status = msg["status"]
-    if not isinstance(status, list):
-        return False
-    return status[0] == "done"
-
-
-class BaseJob(threading.Thread):
-    def __init__(self, repl):
-        threading.Thread.__init__(self)
-
-        self.repl = repl
-
-        self.from_remote_queue = Queue()
-        self.wait_queue = Queue()
-        self.out = []
-        self.lines = []
-
-    def wait_for_output(self, silent=False, eval_value=False, debug=False):
-        self.raw_value = None
-        self.ex_happened = False
-        self.err_happened = False
-
-        while True:
-            msg = self.from_remote_queue.get(block=True)
-            if debug:
-                print(msg)
-            if is_done_msg(msg):
-                out = "".join(self.out)
-                if not silent:
-                    self.lines += out_to_lines(out)
-                self.out_str = out
-                break
-            else:
-                if msg == FATAL_ERROR:
-                    self.lines += ["FATAL ERROR!"]
-                    break
-                elif "out" in msg:
-                    self.out.append(extract_out_msg(msg))
-                elif "ex" in msg:
-                    self.ex_happened = True
-                    lines = ex_msg_to_lines(msg)
-                    if not silent:
-                        self.lines += lines
-                elif "err" in msg:
-                    self.err_happened = True
-                    lines = err_msg_to_lines(msg)
-                    if not silent:
-                        self.lines += lines
-                elif "value" in msg:
-                    lines, raw_value = value_msg_to_lines(msg, eval_value)
-                    if not silent:
-                        self.lines += [";; VALUE:"]
-                        self.lines += lines
-                    self.raw_value = raw_value
-                else:
-                    # ignore silent due to probably an error or unhandled case
-                    self.lines += [str(msg)]
-
-    def report_exception(self):
-        if not self.ex_happened:
-            return
-
-        self.lines += [";; STACK TRACE"]
-        self.repl.eval(self.id, self.session, "*e")
-        while True:
-            msg = self.from_remote_queue.get(block=True)
-            if is_done_msg(msg):
-                out = "".join(self.out)
-                self.out_str = out
-                break
-            else:
-                if msg == FATAL_ERROR:
-                    self.lines += ["FATAL ERROR!"]
-                    break
-                elif "value" in msg:
-                    eval_value = False
-                    lines, raw_value = value_msg_to_lines(msg, eval_value)
-                    self.lines += lines
-                    self.raw_value = raw_value
-                else:
-                    # ignore silent due to probably an error or unhandled case
-                    self.lines += [str(msg)]
-
-    def wait(self):
-        ret = self.wait_queue.get(block=True)
-        self.repl.wait_for_scratch_update()
-        return ret
-
-
-class DocJob(BaseJob):
-    def __init__(self, repl, ns, symbol):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.ns = ns
-        self.symbol = symbol
-        self.id = "doc-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(in-ns %s)" % (self.ns)
-        self.lines += [code]
-        self.repl.eval(self.id, self.session, code)
-        self.wait_for_output(silent=True)
-
-        code = "(with-out-str (clojure.repl/doc %s))" % (self.symbol)
-        self.lines += [code]
-        self.repl.eval(self.id, self.session, code)
-        self.wait_for_output(eval_value=True)
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-class MacroexpandJob(BaseJob):
-    def __init__(self, repl, ns, form):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.ns = ns
-        self.form = form
-        self.id = "macroexpand-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(in-ns %s)" % (self.ns)
-        self.lines += [code]
-        self.repl.eval(self.id, self.session, code)
-        self.wait_for_output(silent=True)
-
-        code = "(macroexpand (quote\n%s))" % (self.form)
-        self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
-        self.lines += code
-        self.wait_for_output(eval_value=False, debug=False)
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-class Macroexpand1Job(BaseJob):
-    def __init__(self, repl, ns, form):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.ns = ns
-        self.form = form
-        self.id = "macroexpand-1-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(in-ns %s)" % (self.ns)
-        self.lines += [code]
-        self.repl.eval(self.id, self.session, code)
-        self.wait_for_output(silent=True)
-
-        code = "(macroexpand-1 (quote\n%s))" % (self.form)
-        self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
-        self.lines += code
-        self.wait_for_output(eval_value=False, debug=False)
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-class EvalJob(BaseJob):
-    def __init__(self, repl, ns, form):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.ns = ns
-        self.form = form
-        self.id = "eval-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(in-ns %s)" % (self.ns)
-        self.lines += [code]
-        self.repl.eval(self.id, self.session, code)
-        self.wait_for_output(silent=True)
-
-        code = "%s" % (self.form)
-        self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
-        self.lines += [";; CODE:"]
-        self.lines += code
-        self.wait_for_output(eval_value=False, debug=False)
-        self.report_exception()
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-class RequireJob(BaseJob):
-    def __init__(self, repl, ns, reload_level):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.ns = ns
-        self.reload_level = reload_level
-        self.id = "require-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(clojure.core/require %s %s)" % (self.ns, self.reload_level)
-        self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
-        self.lines += [";; CODE:"]
-        self.lines += code
-        self.wait_for_output(eval_value=False, debug=False)
-        self.report_exception()
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-class RunTestsJob(BaseJob):
-    def __init__(self, repl, form):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.form = form
-        self.id = "run-tests-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(with-out-str %s)" % (self.form)
-        self.repl.eval(self.id, self.session, code)
-        code = code.split("\n")
-        self.lines += [";; CODE:"]
-        self.lines += code
-        self.wait_for_output(eval_value=True, debug=False)
-        self.report_exception()
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        self.wait_queue.put("done")
-
-
-###############################################################################
-
-
-def get_project_type(path):
-    if os.path.exists(os.path.join(path, "project.clj")):
-        return "default"
-    if os.path.exists(os.path.join(path, "shadow-cljs.edn")):
-        return "shadow-cljs"
-    if os.path.exists(os.path.join(path, "deps.edn")):
-        return "default"
-    return None
-
-
-def get_project_path():
-    path = get_current_buf_path()
-    prev_path = path
     while True:
-        project_type = get_project_type(path)
-        if project_type is not None:
-            break
-        prev_path = path
-        path = os.path.dirname(path)
-        if path == prev_path:
-            raise Exception("plasmaplace: could not determine project directory")
-    return path
+        payload = TO_REPL.get(block=True)
+        _debug(payload)
+        payload = bencode(payload)
+        SOCKET.sendall(bytes(payload, "UTF-8"))
 
 
-def get_project_key():
-    project_path = get_project_path()
-    tokens = re.split(r"\\|\/", project_path)
-    tokens = filter(lambda x: len(x) > 0, tokens)
-    tokens = list(tokens)
-    tokens.reverse()
-    return "_".join(tokens)
+def _write_to_vim_loop():
+    global TO_VIM
 
-
-def get_nrepl_port(project_path):
-    candidates = [".nrepl-port", ".shadow-cljs/nrepl.port"]
-    for filename in candidates:
-        path = os.path.join(project_path, filename)
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return f.read().strip()
-    raise Exception("plasmaplace: could not determine nREPL port number")
-
-
-def create_or_get_repl():
-    global REPLS
-    project_key = get_project_key()
-    project_path = get_project_path()
-    if project_key in REPLS:
-        if REPLS[project_key].closed:
-            del REPLS[project_key]
-    if project_key not in REPLS:
-        REPLS[project_key] = REPL(
-            project_key, project_path, "localhost", get_nrepl_port(project_path)
-        )
-    return REPLS[project_key]
-
-
-def Doc(ns, symbol):
-    repl = create_or_get_repl()
-    job = DocJob(repl, ns, symbol)
-    job.start()
-    job.wait()
-
-
-def Macroexpand(ns, form):
-    repl = create_or_get_repl()
-    job = MacroexpandJob(repl, ns, form)
-    job.start()
-    job.wait()
-
-
-def Macroexpand1(ns, form):
-    repl = create_or_get_repl()
-    job = Macroexpand1Job(repl, ns, form)
-    job.start()
-    job.wait()
-
-
-def Eval(ns, form):
-    repl = create_or_get_repl()
-    job = EvalJob(repl, ns, form)
-    job.start()
-    job.wait()
-
-
-def Require(ns, reload_level):
-    repl = create_or_get_repl()
-    if repl.project_type == "shadow-cljs":
-        return
-    job = RequireJob(repl, ns, reload_level)
-    job.start()
-    job.wait()
-
-
-def RunTests(form):
-    repl = create_or_get_repl()
-    job = RunTestsJob(repl, form)
-    job.start()
-    job.wait()
-
-
-def DeleteOtherNreplSessions():
-    repl = create_or_get_repl()
-    repl.delete_other_nrepl_sessions()
-
-
-_ready = False
-
-
-def VimEnter():
-    global _ready
-    _ready = True
-
-
-def FlushScratchBuffer():
-    global _ready
-    global REPLS
-    if not _ready:
-        return
-    try:
-        project_key = get_project_key()
-    except:  # noqa
-        return
-    if project_key not in REPLS:
-        return
-    repl = create_or_get_repl()
-    repl.wait_for_scratch_update(0.0)
-
-
-def cleanup_active_sessions():
-    global REPLS
-    for project_key, repl in REPLS.items():
-        repl.close_session(repl.root_session, True)
-        repl.close()
-    REPLS.clear()
+    while True:
+        payload = TO_VIM.get(block=True)
+        sys.stdout.write(json.dumps(payload))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 ###############################################################################
 
-
-class CljfmtJob(BaseJob):
-    def __init__(self, repl, code):
-        BaseJob.__init__(self, repl)
-        self.daemon = True
-
-        self.repl = repl
-        self.code = code
-        self.id = "cljfmt-job-" + fetch_job_number()
-        self.session = self.repl.acquire_session()
-
-        self.repl.register_job(self)
-
-    def run(self):
-        code = "(require 'cljfmt.core)"
-        self.repl.eval(self.id, self.session, code)
-        self.lines += [";; CODE:"]
-        self.lines += [code]
-        self.wait_for_output(eval_value=False, debug=False, silent=True)
-
-        template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
-        code = template % self.code
-        self.repl.eval(self.id, self.session, code)
-        self.lines += [";; CODE:"]
-        self.lines += [template % '"<buffer contents>"']
-        self.wait_for_output(eval_value=True, debug=False, silent=True)
-
-        self.repl.append_to_scratch(self.lines)
-        self.repl.close_session(self.session)
-        self.repl.unregister_job(self)
-        if self.ex_happened or self.err_happened:
-            self.wait_queue.put(None)
-        else:
-            self.wait_queue.put(self.raw_value)
+def _read():
+    global SOCKET_FILE
+    return bdecode(SOCKET_FILE)
 
 
-def Cljfmt(code):
-    repl = create_or_get_repl()
-    job = CljfmtJob(repl, code)
-    job.start()
-    formatted_code = job.wait()
-    if not formatted_code:
-        pass
+def to_vim(msg_id: int, msg):
+    global TO_VIM
+    TO_VIM.put([msg_id, msg])
+
+
+###############################################################################
+
+def init(port_file_path, project_type):
+    global PROJECT_TYPE
+    global SOCKET
+    global SOCKET_FILE
+
+    PROJECT_TYPE = project_type
+
+    with open(port_file_path, "r") as f:
+        port = int(f.read().strip())
+    SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    SOCKET.connect(("localhost", port))
+    SOCKET.setblocking(1)
+    SOCKET_FILE = SOCKET.makefile(encoding=None, mode="rb")
+
+    t1 = threading.Thread(target=_write_to_nrepl_loop, daemon=True)
+    t1.daemon = True
+    t1.start()
+
+    t2 = threading.Thread(target=_write_to_vim_loop, daemon=True)
+    t2.daemon = True
+    t2.start()
+
+
+def get_existing_sessions(out):
+    global EXISTING_SESSIONS
+
+    cmd = {"op": "ls-sessions"}
+    TO_REPL.put(cmd)
+    msg = _read()
+    EXISTING_SESSIONS = msg["sessions"]
+    out += [";; existing sessions: " + str(EXISTING_SESSIONS)]
+
+
+def acquire_root_session(out):
+    global ROOT_SESSION
+
+    cmd = {"op": "clone"}
+    TO_REPL.put(cmd)
+    msg = _read()
+    ROOT_SESSION = msg["new-session"]
+    out += [";; current session: " + ROOT_SESSION]
+
+
+def loop():
+    global SOCKET_FILE
+    input_rlist = [sys.stdin]
+    while True:
+        rlist, _, _ = select.select(input_rlist, [], [])
+        for obj in rlist:
+            if obj == sys.stdin:
+                line = sys.stdin.readline()
+                obj = json.loads(line)
+                process_command_from_vim(obj)
+            elif obj == SOCKET_FILE:
+                pass
+
+
+def process_command_from_vim(obj):
+    msg_id, msg = obj
+    verb = msg[0]
+    args = msg[1:]
+
+    if verb == "init":
+        out = [";; connected to nREPL"]
+        get_existing_sessions(out)
+        acquire_root_session(out)
+        plasmaplace_commands.set_globals(TO_REPL, ROOT_SESSION, _read)
+        plasmaplace_commands.start_repl_read_dispatch_loop()
+        to_vim(msg_id, {"lines": out})
+    elif verb == "delete_other_nrepl_sessions":
+        for session_id in EXISTING_SESSIONS:
+            TO_REPL.put({"op": "close", "session": session_id})
+        to_vim(msg_id, {"lines": []})
     else:
-        vl = vim.bindeval("s:formatted_code")
-        vl.extend(formatted_code.split("\n"))
+        f = plasmaplace_commands.dispatcher[verb]
+        ret = f(*args)
+        to_vim(msg_id, ret)
 
 
-###############################################################################
+################################################################################
+
+
+def main(port_file_path, project_type):
+    init(port_file_path, project_type)
+    loop()
 
 
 if __name__ == "__main__":
-    pass
+    _, port_file_path, project_type = sys.argv
+    main(port_file_path, project_type)
