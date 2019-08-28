@@ -171,7 +171,6 @@ function! plasmaplace#__close_callback(ch) abort
     call remove(s:channels, project_key)
 		echohl WarningMsg
     echo printf("plasmaplace daemon died for project: %s", project_key)
-    echohl None
 endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim

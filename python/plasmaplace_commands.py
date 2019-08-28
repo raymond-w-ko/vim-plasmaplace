@@ -190,9 +190,10 @@ def doc(ns, symbol):
 
 
 def _eval(ns, code):
-    ret = switch_to_ns(ns)
-    if not ret.success:
-        return ret.to_scratch_buf()
+    if ns is not None:
+        ret = switch_to_ns(ns)
+        if not ret.success:
+            return ret.to_scratch_buf()
 
     ret = Eval(code, echo_code=True)
     return ret.to_scratch_buf()

@@ -123,6 +123,18 @@ def acquire_root_session(out):
     out += [";; current session: " + ROOT_SESSION]
 
 
+def switch_to_clojurescript_repl(out):
+    global PROJECT_TYPE
+    global PROJECT_PATH
+
+    if PROJECT_TYPE == "shadow-cljs":
+        shadow_browser_target = get_shadow_browser_target(PROJECT_PATH)
+        f = plasmaplace_commands.dispatcher["eval"]
+        code = "(shadow/nrepl-select %s)" % (shadow_browser_target)
+        f(None, code)
+        out += [";; switched to shadow-cljs nREPL"]
+
+
 def loop():
     global SOCKET_FILE
     input_rlist = [sys.stdin]
@@ -148,6 +160,7 @@ def process_command_from_vim(obj):
         acquire_root_session(out)
         plasmaplace_commands.set_globals(TO_REPL, ROOT_SESSION, _read)
         plasmaplace_commands.start_repl_read_dispatch_loop()
+        switch_to_clojurescript_repl(out)
         to_vim(msg_id, {"lines": out})
     elif verb == "delete_other_nrepl_sessions":
         for session_id in EXISTING_SESSIONS:
