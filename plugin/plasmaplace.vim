@@ -79,6 +79,12 @@ function! plasmaplace#ns() abort
   endif
 endfunction
 
+python3 import vim
+function! plasmaplace#get_buffer_num_lines(bufnr) abort
+  let numlines = py3eval('len(vim.buffers[' . a:bufnr . '])')
+  return numlines
+endfunction
+
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 function! s:get_project_type(path) abort
@@ -116,7 +122,7 @@ function! s:get_project_key() abort
   return join(tokens, "_")
 endfunction
 
-function! s:set_local_window_options() abort
+function! s:set_scratch_window_options() abort
   setlocal foldcolumn=0
   setlocal nofoldenable
   setlocal number
@@ -135,7 +141,7 @@ function! s:create_or_get_scratch(project_key) abort
   setlocal buflisted
   setlocal buftype=nofile
   setlocal noswapfile
-  call s:set_local_window_options()
+  call s:set_scratchlocal_window_options()
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufvar(bnum, "ale_enabled", 0)
@@ -177,8 +183,12 @@ endfunction
 function! s:handle_message(project_key, msg) abort
   if has_key(a:msg, "value")
     return a:msg["value"]
+  elseif has_key(a:msg, "lines")
+    call s:append_lines_to_scratch(a:project_key, a:msg["lines"])
   endif
+endfunction
 
+function! s:append_lines_to_scratch(project_key, lines) abort
   " save for later
   let ret_bufnr = bufnr('%')
   let ret_mode = mode()
@@ -186,8 +196,10 @@ function! s:handle_message(project_key, msg) abort
   let ret_col = col('.')
 
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
-  let lines = a:msg["lines"]
-  call appendbufline(scratch_bufnr, "$", lines)
+  let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
+  echom top_line_num
+  call appendbufline(scratch_bufnr, "$", a:lines)
+  call plasmaplace#center_scratch_buf( scratch_bufnr, top_line_num)
 
   " restore mode and position
   if ret_mode =~ '[vV]'
@@ -279,7 +291,7 @@ function! plasmaplace#center_scratch_buf(scratch, top_line_num) abort
     if !s:window_in_tab(buffer_windows, visible_windows)
       execute g:plasmaplace_scratch_split_cmd
       execute "buffer " . a:scratch
-      call s:set_local_window_options()
+      call s:set_scratchlocal_window_options()
     endif
     let save = winsaveview()
     let winnr = buffer_windows[0]
