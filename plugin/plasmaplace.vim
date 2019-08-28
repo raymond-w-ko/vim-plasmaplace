@@ -141,7 +141,7 @@ function! s:create_or_get_scratch(project_key) abort
   setlocal buflisted
   setlocal buftype=nofile
   setlocal noswapfile
-  call s:set_scratchlocal_window_options()
+  call s:set_scratch_window_options()
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufvar(bnum, "ale_enabled", 0)
@@ -291,7 +291,7 @@ function! plasmaplace#center_scratch_buf(scratch, top_line_num) abort
     if !s:window_in_tab(buffer_windows, visible_windows)
       execute g:plasmaplace_scratch_split_cmd
       execute "buffer " . a:scratch
-      call s:set_scratchlocal_window_options()
+      call s:set_scratch_window_options()
     endif
     let save = winsaveview()
     let winnr = buffer_windows[0]
