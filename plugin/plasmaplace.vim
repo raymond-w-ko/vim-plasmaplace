@@ -175,8 +175,9 @@ function! plasmaplace#__close_callback(ch) abort
     call remove(s:channel_id_to_project_key, ch_id)
     call remove(s:jobs, project_key)
     call remove(s:channels, project_key)
-		echohl WarningMsg
+    echohl WarningMsg
     echo printf("plasmaplace daemon died for project: %s", project_key)
+    echohl None
 endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
@@ -197,7 +198,6 @@ function! s:append_lines_to_scratch(project_key, lines) abort
 
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
   let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
-  echom top_line_num
   call appendbufline(scratch_bufnr, "$", a:lines)
   call plasmaplace#center_scratch_buf( scratch_bufnr, top_line_num)
 
