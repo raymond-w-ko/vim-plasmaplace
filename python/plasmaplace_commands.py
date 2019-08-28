@@ -58,13 +58,14 @@ class Eval:
             this = Eval.instances[id]
             this.from_repl.put(msg)
 
-    def __init__(self, code, eval_value=False, echo_code=False):
+    def __init__(self, code, eval_value=False, echo_code=False, silent=False):
         self.id = str(uuid.uuid4())
         self.from_repl = Queue()
         Eval.instances[self.id] = self
 
         self.echo_code = echo_code
         self.eval_value = eval_value
+        self.silent = silent
         self.code = code
 
         self.success = False
@@ -73,6 +74,8 @@ class Eval:
 
         self.errors = []
         self.lines = []
+        self.value = []
+        self.raw_value = None
 
         self._eval()
         self._fetch_stacktrace()
@@ -111,7 +114,9 @@ class Eval:
                     value = msg["value"]
                     if self.eval_value:
                         value = literal_eval(value)
-                    self.lines += value.split("\n")
+                    self.raw_value = value
+                    if isinstance(value, str):
+                        self.value += value.split("\n")
                 elif "err" in msg:
                     self.err_happened = True
                     self.errors = [";; ERR:"]
@@ -154,11 +159,18 @@ class Eval:
         ]
         if self.echo_code:
             lines += self.code.split("\n")
-        if len(self.lines) > 0:
-            lines += [";; OUT"]
-        lines += self.lines
+        if not self.silent:
+            if len(self.lines) > 0:
+                lines += [";; OUT"]
+            lines += self.lines
+            if self.value:
+                lines += [";; VALUE"]
+                lines += self.value
         lines += self.errors
         return {"lines": lines}
+
+    def to_value(self):
+        return {"value": self.raw_value}
 
 
 def switch_to_ns(ns):
@@ -187,9 +199,10 @@ def _eval(ns, code):
 
 
 def macroexpand(ns, code):
-    ret = switch_to_ns(ns)
-    if not ret.success:
-        return ret.to_scratch_buf()
+    if ns:
+        ret = switch_to_ns(ns)
+        if not ret.success:
+            return ret.to_scratch_buf()
 
     code = "(macroexpand (quote\n%s))" % (code,)
     ret = Eval(code, eval_value=False, echo_code=True)
@@ -208,8 +221,20 @@ def macroexpand1(ns, code):
 
 def require(ns, reload_level):
     code = "(clojure.core/require %s %s)" % (ns, reload_level)
-    ret = Eval(code, eval_value=False, echo_code=True)
+    ret = Eval(code, eval_value=False, echo_code=True, silent=True)
     return ret.to_scratch_buf()
+
+
+def cljfmt(code):
+    require_cljfmt_code = "(require 'cljfmt.core)"
+    ret = Eval(require_cljfmt_code, eval_value=False, echo_code=True, silent=True)
+    if not ret.success:
+        return ret.to_scratch_buf()
+
+    template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
+    code = template % (code,)
+    ret = Eval(code, eval_value=True, echo_code=False, silent=True)
+    return ret.to_value()
 
 
 dispatcher = {}
@@ -218,3 +243,4 @@ dispatcher["eval"] = _eval
 dispatcher["macroexpand"] = macroexpand
 dispatcher["macroexpand1"] = macroexpand1
 dispatcher["require"] = require
+dispatcher["cljfmt"] = cljfmt
