@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 from pprint import pprint  # noqa
 import sys
-import time
-import re
 import os
 import socket
 import json
 import select
 import threading
+import atexit
 from queue import Queue
 
 from plasmaplace_utils import bencode, bdecode, get_shadow_browser_target
@@ -103,13 +102,24 @@ def get_existing_sessions(out):
     out += [";; existing sessions: " + str(EXISTING_SESSIONS)]
 
 
+def cleanup_root_session():
+    global ROOT_SESSION
+    global SOCKET
+    payload = {"op": "close", "session": ROOT_SESSION}
+    payload = bencode(payload)
+    SOCKET.sendall(bytes(payload, "UTF-8"))
+
+
 def acquire_root_session(out):
     global ROOT_SESSION
 
+    if ROOT_SESSION is not None:
+        return
     cmd = {"op": "clone"}
     TO_REPL.put(cmd)
     msg = _read()
     ROOT_SESSION = msg["new-session"]
+    atexit.register(cleanup_root_session)
     out += [";; current session: " + ROOT_SESSION]
 
 
@@ -143,6 +153,8 @@ def process_command_from_vim(obj):
         for session_id in EXISTING_SESSIONS:
             TO_REPL.put({"op": "close", "session": session_id})
         to_vim(msg_id, {"lines": []})
+    elif verb == "exit":
+        sys.exit(0)
     else:
         f = plasmaplace_commands.dispatcher[verb]
         ret = f(*args)
@@ -154,7 +166,10 @@ def process_command_from_vim(obj):
 
 def main(port_file_path, project_type):
     init(port_file_path, project_type)
-    loop()
+    try:
+        loop()
+    except: # noqa
+        cleanup_root_session()
 
 
 if __name__ == "__main__":

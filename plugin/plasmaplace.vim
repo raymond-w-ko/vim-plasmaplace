@@ -81,7 +81,7 @@ endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-function! s:get_project_type(path)
+function! s:get_project_type(path) abort
   if filereadable(a:path . "/project.clj")
     return "default"
   elseif filereadable(a:path . "/shadow-cljs.edn")
@@ -92,7 +92,7 @@ function! s:get_project_type(path)
   return 0
 endfunction
 
-function! s:get_project_path()
+function! s:get_project_path() abort
   let path = expand("%:p:h")
   let prev_path = path
   while 1
@@ -108,7 +108,7 @@ function! s:get_project_path()
   endwhile
 endfunction
 
-function! s:get_project_key()
+function! s:get_project_key() abort
   let project_path = s:get_project_path()
   let tokens = split(project_path, '\v\\|\/')
   let token = filter(tokens, 'strlen(v:val) > 0')
@@ -116,7 +116,7 @@ function! s:get_project_key()
   return join(tokens, "_")
 endfunction
 
-function! s:set_local_window_options()
+function! s:set_local_window_options() abort
   setlocal foldcolumn=0
   setlocal nofoldenable
   setlocal number
@@ -153,7 +153,7 @@ function! s:ch_get_id(ch)
   let id = substitute(a:ch, '^channel \(\d\+\) \(open\|closed\)$', '\1', '')
 endfunction
 
-function! plasmaplace#__job_callback(ch, msg)
+function! plasmaplace#__job_callback(ch, msg) abort
   try
     let ch_id = s:ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
@@ -163,7 +163,7 @@ function! plasmaplace#__job_callback(ch, msg)
   endtry
 endfunction
 
-function! plasmaplace#__close_callback(ch)
+function! plasmaplace#__close_callback(ch) abort
     let ch_id = s:ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
     call remove(s:channel_id_to_project_key, ch_id)
@@ -175,7 +175,7 @@ function! plasmaplace#__close_callback(ch)
 endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
-function! s:handle_message(project_key, msg)
+function! s:handle_message(project_key, msg) abort
   if has_key(a:msg, "value")
     return a:msg["value"]
   endif
@@ -199,7 +199,7 @@ function! s:handle_message(project_key, msg)
   keepjumps call cursor(ret_line, ret_col)
 endfunction
 
-function! s:create_or_get_job(project_key)
+function! s:create_or_get_job(project_key) abort
   if has_key(s:jobs, a:project_key)
     return s:jobs[a:project_key]
   endif
@@ -243,7 +243,7 @@ function! s:create_or_get_job(project_key)
   call s:handle_message(a:project_key, msg)
 endfunction
 
-function! s:repl(cmd)
+function! s:repl(cmd) abort
   let project_key = s:get_project_key()
   let scratch = s:create_or_get_scratch(project_key)
   let job = s:create_or_get_job(project_key)
@@ -254,7 +254,7 @@ function! s:repl(cmd)
   return s:handle_message(project_key, msg)
 endfunction
 
-function! s:window_in_tab(aliases, windows)
+function! s:window_in_tab(aliases, windows) abort
   if type(a:aliases) != v:t_list  | return 0 | endif
   if type(a:windows) != v:t_list | return 0 | endif
   for x in a:aliases
@@ -561,12 +561,20 @@ function! s:setup_keybinds() abort
   nmap <buffer> cpr :RunTests<CR>
 endfunction
 
+function! s:cleanup_daemons() abort
+  for [project_key, ch] in items(s:channels)
+    let options = {"timeout": g:plasmaplace_command_timeout_ms}
+    let msg = ch_evalexpr(ch, ["exit"], options)
+  endfor
+endfunction
+
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 augroup plasmaplace
   autocmd!
   autocmd FileType clojure call s:setup_commands()
   autocmd FileType clojure call s:setup_keybinds()
+  autocmd VimLeave * call s:cleanup_daemons()
   autocmd BufWritePost *.clj call s:Require(0, 1, "")
   autocmd BufWritePost *.cljs call s:Require(0, 1, "")
   autocmd BufWritePost *.cljc call s:Require(0, 1, "")
