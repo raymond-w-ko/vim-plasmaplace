@@ -73,7 +73,8 @@ class Eval:
         self.err_happened = False
 
         self.errors = []
-        self.lines = []
+        self.out = []
+        self.unknown = []
         self.value = []
         self.raw_value = None
 
@@ -109,7 +110,7 @@ class Eval:
                 break
             else:
                 if "out" in msg:
-                    self.lines += msg["out"].split("\n")
+                    self.out.append(msg["out"])
                 elif "value" in msg:
                     value = msg["value"]
                     if self.eval_value:
@@ -129,8 +130,8 @@ class Eval:
                     self.success = False
                 else:
                     # ignore silent due to probably an error or unhandled case
-                    self.lines += [";; UNKNOWN REPL RESPONSE"]
-                    self.lines += [str(msg)]
+                    self.unknown += [";; UNKNOWN REPL RESPONSE"]
+                    self.unknown += [str(msg)]
 
     def _fetch_stacktrace(self):
         if not self.ex_happened:
@@ -150,8 +151,8 @@ class Eval:
                     self.errors += value.split("\n")
                 else:
                     # ignore silent due to probably an error or unhandled case
-                    self.lines += [";; UNKNOWN REPL RESPONSE"]
-                    self.lines += [str(msg)]
+                    self.unknown += [";; UNKNOWN REPL RESPONSE"]
+                    self.unknown += [str(msg)]
 
     def to_scratch_buf(self):
         lines = [
@@ -160,12 +161,13 @@ class Eval:
         if self.echo_code:
             lines += self.code.split("\n")
         if not self.silent:
-            if len(self.lines) > 0:
+            if len(self.out) > 0:
                 lines += [";; OUT"]
-            lines += self.lines
+                lines += "".join(self.out).split("\n")
             if self.value:
                 lines += [";; VALUE"]
                 lines += self.value
+            lines += self.unknown
         lines += self.errors
         return {"lines": lines}
 
