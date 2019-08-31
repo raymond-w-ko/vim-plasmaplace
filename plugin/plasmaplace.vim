@@ -192,7 +192,7 @@ endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
 function! s:handle_message(project_key, msg) abort
-  if a:msg ==# ""
+  if type(a:msg) == v:t_string && ==# ""
     call s:echo_warning("vim-plasmaplace REPL command timed out")
   elseif has_key(a:msg, "value")
     return a:msg["value"]
