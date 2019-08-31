@@ -6,6 +6,12 @@ if exists("g:loaded_plasmaplace") || v:version < 800 || &compatible
 endif
 let g:loaded_plasmaplace = 1
 
+if !has("python3")
+  echoerr "vim-plasmaplace plugin requires python3"
+else
+  python3 import vim
+endif
+
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " global vars
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -28,7 +34,6 @@ let s:channels = {}
 let s:channel_id_to_project_key = {}
 let s:last_eval_ns = ""
 let s:last_eval_form = ""
-
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " utils
@@ -79,10 +84,21 @@ function! plasmaplace#ns() abort
   endif
 endfunction
 
-python3 import vim
-function! plasmaplace#get_buffer_num_lines(bufnr) abort
-  let numlines = py3eval('len(vim.buffers[' . a:bufnr . '])')
+" get number of lines in a buffer
+function! plasmaplace#get_buffer_num_lines(buffer) abort
+  let numlines = py3eval('len(vim.buffers[' . a:buffer . '])')
   return numlines
+endfunction
+
+" get channel ID number from channel object
+function! s:ch_get_id(ch) abort
+  let id = substitute(a:ch, '^channel \(\d\+\) \(open\|closed\)$', '\1', '')
+endfunction
+
+function! s:echo_warning(msg)
+  echohl WarningMsg
+  echo a:msg
+  echohl None
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -155,10 +171,6 @@ function! s:create_or_get_scratch(project_key) abort
   return bnum
 endfunction
 
-function! s:ch_get_id(ch)
-  let id = substitute(a:ch, '^channel \(\d\+\) \(open\|closed\)$', '\1', '')
-endfunction
-
 function! plasmaplace#__job_callback(ch, msg) abort
   try
     let ch_id = s:ch_get_id(a:ch)
@@ -175,14 +187,14 @@ function! plasmaplace#__close_callback(ch) abort
     call remove(s:channel_id_to_project_key, ch_id)
     call remove(s:jobs, project_key)
     call remove(s:channels, project_key)
-    echohl WarningMsg
-    echo printf("plasmaplace daemon died for project: %s", project_key)
-    echohl None
+    call s:echo_warning(printf("plasmaplace daemon died for project: %s", project_key))
 endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
 function! s:handle_message(project_key, msg) abort
-  if has_key(a:msg, "value")
+  if a:msg ==# ""
+    call s:echo_warning("vim-plasmaplace REPL command timed out")
+  elseif has_key(a:msg, "value")
     return a:msg["value"]
   elseif has_key(a:msg, "lines")
     call s:append_lines_to_scratch(a:project_key, a:msg["lines"])
