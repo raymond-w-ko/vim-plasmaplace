@@ -155,9 +155,11 @@ class Eval:
                     self.unknown += [str(msg)]
 
     def to_scratch_buf(self):
-        lines = [
-            ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;"
-        ]
+        lines = []
+        if not self.silent:
+            lines += [
+                ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;"
+            ]
         if self.echo_code:
             lines += self.code.split("\n")
         if not self.silent:

@@ -164,7 +164,7 @@ function! s:create_or_get_scratch(project_key) abort
   call setbufline(bnum, 1, ";; Loading Clojure REPL...")
   nnoremap <buffer> q :q<CR>
   nnoremap <buffer> gq :q<CR>
-  nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
+  " nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
   let s:repl_scratch_buffers[a:project_key] = bnum
   wincmd p
   redraw
@@ -190,18 +190,26 @@ function! plasmaplace#__close_callback(ch) abort
     call s:echo_warning(printf("plasmaplace daemon died for project: %s", project_key))
 endfunction
 
+function! s:is_invalid_response(msg) abort
+  return type(a:msg) == v:t_string && a:msg ==# ""
+endfunction
+
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
 function! s:handle_message(project_key, msg) abort
-  if type(a:msg) == v:t_string && a:msg ==# ""
+  if s:is_invalid_response(a:msg)
     call s:echo_warning("vim-plasmaplace REPL command timed out")
   elseif has_key(a:msg, "value")
     return a:msg["value"]
   elseif has_key(a:msg, "lines")
-    call s:append_lines_to_scratch(a:project_key, a:msg["lines"])
+    let skip_center = 0
+    if has_key(a:msg, "skip_center")
+      let skip_center = 1
+    endif
+    call s:append_lines_to_scratch(a:project_key, a:msg["lines"], skip_center)
   endif
 endfunction
 
-function! s:append_lines_to_scratch(project_key, lines) abort
+function! s:append_lines_to_scratch(project_key, lines, skip_center) abort
   " save for later
   let ret_bufnr = bufnr('%')
   let ret_mode = mode()
@@ -211,7 +219,9 @@ function! s:append_lines_to_scratch(project_key, lines) abort
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
   let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
   call appendbufline(scratch_bufnr, "$", a:lines)
-  call plasmaplace#center_scratch_buf( scratch_bufnr, top_line_num)
+  if !a:skip_center
+    call plasmaplace#center_scratch_buf( scratch_bufnr, top_line_num)
+  endif
 
   " restore mode and position
   if ret_mode =~ '[vV]'
@@ -274,6 +284,11 @@ function! s:repl(cmd) abort
 
   let options = {"timeout": g:plasmaplace_command_timeout_ms}
   let msg = ch_evalexpr(ch, a:cmd, options)
+  if !s:is_invalid_response(msg)
+    if a:cmd[0] == "require"
+      let msg["skip_center"] = 1
+    endif
+  endif
   return s:handle_message(project_key, msg)
 endfunction
 
