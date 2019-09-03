@@ -29,8 +29,6 @@ ROOT_SESSION = None
 def _debug(obj):
     s = str(obj)
     print(s, file=sys.stderr)
-    if s[-1] != "\n":
-        print("", file=sys.stderr)
     sys.stderr.flush()
 
 
@@ -40,7 +38,7 @@ def _write_to_nrepl_loop():
 
     while True:
         payload = TO_REPL.get(block=True)
-        _debug(payload)
+        # _debug(payload)
         payload = bencode(payload)
         SOCKET.sendall(bytes(payload, "UTF-8"))
 

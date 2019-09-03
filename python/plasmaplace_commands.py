@@ -13,8 +13,6 @@ _read = None
 def _debug(obj):
     s = str(obj)
     print(s, file=sys.stderr)
-    if s[-1] != "\n":
-        print("", file=sys.stderr)
     sys.stderr.flush()
 
 
@@ -105,7 +103,7 @@ class Eval:
         self.success = True
         while True:
             msg = self.from_repl.get()
-            _debug(msg)
+            # _debug(msg)
             if self.is_done_msg(msg):
                 break
             else:
@@ -141,7 +139,7 @@ class Eval:
         TO_REPL.put(payload)
         while True:
             msg = self.from_repl.get()
-            _debug(msg)
+            # _debug(msg)
             if self.is_done_msg(msg):
                 break
             else:

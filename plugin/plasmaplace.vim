@@ -261,6 +261,9 @@ function! s:create_or_get_job(project_key) abort
       \ }
   if 0
     let options["err_mode"] = "raw"
+    let options["err_io"] = "null"
+  else
+    let options["err_mode"] = "raw"
     let options["err_io"] = "file"
     let options["err_name"] = "/tmp/plasmaplace.log"
   endif
@@ -283,7 +286,11 @@ function! s:repl(cmd) abort
   let ch = s:channels[project_key]
 
   let options = {"timeout": g:plasmaplace_command_timeout_ms}
+  if a:cmd[0] == "cljfmt"
+    let options["timeout"] = 8192
+  endif
   let msg = ch_evalexpr(ch, a:cmd, options)
+
   if !s:is_invalid_response(msg)
     if a:cmd[0] == "require"
       let msg["skip_center"] = 1
