@@ -261,11 +261,11 @@ function! s:create_or_get_job(project_key) abort
       \ }
   if 0
     let options["err_mode"] = "raw"
-    let options["err_io"] = "null"
-  else
-    let options["err_mode"] = "raw"
     let options["err_io"] = "file"
     let options["err_name"] = "/tmp/plasmaplace.log"
+  else
+    let options["err_mode"] = "raw"
+    let options["err_io"] = "null"
   endif
   let job = job_start(["python3", s:daemon_path, port_file_path, project_type], options)
   let s:jobs[a:project_key] = job
