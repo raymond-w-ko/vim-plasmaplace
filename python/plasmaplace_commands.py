@@ -27,12 +27,17 @@ def set_globals(_to_repl, _root_session, __read):
 
 
 def _repl_read_dispatch_loop():
-    while True:
-        msg = _read()
-        if not isinstance(msg, dict):
-            continue
-        id = msg["id"]
-        Eval.dispatch_msg(id, msg)
+    try:
+        while True:
+            msg = _read()
+            if not msg:
+                sys.exit(1)
+            if not isinstance(msg, dict):
+                continue
+            id = msg["id"]
+            Eval.dispatch_msg(id, msg)
+    except:  # noqa
+        sys.exit(1)
 
 
 def start_repl_read_dispatch_loop():

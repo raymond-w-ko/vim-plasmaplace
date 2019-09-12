@@ -259,7 +259,7 @@ function! s:create_or_get_job(project_key) abort
       \ "callback": "plasmaplace#__job_callback",
       \ "close_cb": "plasmaplace#__close_callback",
       \ }
-  if 0
+  if 1
     let options["err_mode"] = "raw"
     let options["err_io"] = "file"
     let options["err_name"] = "/tmp/plasmaplace.log"
@@ -561,6 +561,15 @@ endfunction
 
 """"""""""""""""""""""""""""""""""""""""
 
+function! s:Reconnect() abort
+  let project_key = s:get_project_key()
+  if has_key(s:jobs, project_key)
+    let job = s:jobs[project_key]
+    call job_stop(job)
+  endif
+  call s:create_or_get_job(project_key)
+endfunction
+
 function! s:DeleteOtherNreplSessions() abort
   call s:repl(["delete_other_nrepl_sessions"])
 endfunction
@@ -568,6 +577,7 @@ endfunction
 """"""""""""""""""""""""""""""""""""""""
 
 function! s:setup_commands() abort
+  command! -buffer -bar Reconnect :exe s:Reconnect()
   command! -buffer -bar DeleteOtherNreplSessions :exe s:DeleteOtherNreplSessions()
 
   command! -buffer -bar -bang -nargs=? Require :exe s:Require(<bang>0, 1, <q-args>)

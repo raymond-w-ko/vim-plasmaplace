@@ -26,6 +26,7 @@ ROOT_SESSION = None
 
 ###############################################################################
 
+
 def _debug(obj):
     s = str(obj)
     print(s, file=sys.stderr)
@@ -55,9 +56,13 @@ def _write_to_vim_loop():
 
 ###############################################################################
 
+
 def _read():
     global SOCKET_FILE
-    return bdecode(SOCKET_FILE)
+    try:
+        return bdecode(SOCKET_FILE)
+    except:  # noqa
+        sys.exit(1)
 
 
 def to_vim(msg_id: int, msg):
@@ -66,6 +71,7 @@ def to_vim(msg_id: int, msg):
 
 
 ###############################################################################
+
 
 def init(port_file_path, project_type):
     global PROJECT_TYPE
@@ -134,7 +140,6 @@ def switch_to_clojurescript_repl(out):
 
 
 def loop():
-    global SOCKET_FILE
     input_rlist = [sys.stdin]
     while True:
         rlist, _, _ = select.select(input_rlist, [], [])
@@ -143,8 +148,6 @@ def loop():
                 line = sys.stdin.readline()
                 obj = json.loads(line)
                 process_command_from_vim(obj)
-            elif obj == SOCKET_FILE:
-                pass
 
 
 def process_command_from_vim(obj):
@@ -179,7 +182,7 @@ def main(port_file_path, project_type):
     init(port_file_path, project_type)
     try:
         loop()
-    except: # noqa
+    except:  # noqa
         cleanup_root_session()
 
 
