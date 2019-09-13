@@ -150,7 +150,14 @@ def loop():
                 process_command_from_vim(obj)
 
 
+LAST_COMMAND = ""
+LAST_COMMAND_SUCCESSFUL = True
+
+
 def process_command_from_vim(obj):
+    global LAST_COMMAND
+    global LAST_COMMAND_SUCCESSFUL
+
     msg_id, msg = obj
     verb = msg[0]
     args = msg[1:]
@@ -172,6 +179,22 @@ def process_command_from_vim(obj):
     else:
         f = plasmaplace_commands.dispatcher[verb]
         ret = f(*args)
+        if not isinstance(msg, dict):
+            if (
+                LAST_COMMAND == "require"
+                and LAST_COMMAND_SUCCESSFUL
+                and verb == "require"
+                and not ret["ex_happened"]
+            ):
+                ret["skip_center"] = True
+            else:
+                ret["skip_center"] = False
+
+            LAST_COMMAND_SUCCESSFUL = not ret["ex_happened"]
+        else:
+            LAST_COMMAND_SUCCESSFUL = False
+        LAST_COMMAND = verb
+
         to_vim(msg_id, ret)
 
 

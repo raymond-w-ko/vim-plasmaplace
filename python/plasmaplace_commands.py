@@ -174,7 +174,7 @@ class Eval:
                 lines += self.value
             lines += self.unknown
         lines += self.errors
-        return {"lines": lines}
+        return {"lines": lines, "ex_happened": self.ex_happened}
 
     def to_value(self):
         return {"value": self.raw_value}
