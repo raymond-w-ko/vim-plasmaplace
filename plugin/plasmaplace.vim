@@ -267,7 +267,10 @@ function! s:create_or_get_job(project_key) abort
     let options["err_mode"] = "raw"
     let options["err_io"] = "null"
   endif
-  let job = job_start(["python3", s:daemon_path, port_file_path, project_type], options)
+  let job = job_start(
+      \ ["python3", s:daemon_path,
+      \ port_file_path, project_type, g:plasmaplace_command_timeout_ms],
+      \ options)
   let s:jobs[a:project_key] = job
   let ch = job_getchannel(job)
   let s:channels[a:project_key] = ch
