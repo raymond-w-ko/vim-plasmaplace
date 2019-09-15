@@ -177,7 +177,8 @@ class Eval:
         return {"lines": lines, "ex_happened": self.ex_happened}
 
     def to_value(self):
-        return {"value": self.raw_value}
+        # _debug(self.raw_value)
+        return {"value": self.raw_value, "ex_happened": self.ex_happened}
 
 
 def switch_to_ns(ns):

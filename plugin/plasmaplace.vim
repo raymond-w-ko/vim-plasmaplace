@@ -259,7 +259,7 @@ function! s:create_or_get_job(project_key) abort
       \ "callback": "plasmaplace#__job_callback",
       \ "close_cb": "plasmaplace#__close_callback",
       \ }
-  if 1
+  if 0
     let options["err_mode"] = "raw"
     let options["err_io"] = "file"
     let options["err_name"] = "/tmp/plasmaplace.log"

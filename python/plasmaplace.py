@@ -188,7 +188,7 @@ def process_command_from_vim(obj):
 
         f = plasmaplace_commands.dispatcher[verb]
         ret = f(*args)
-        if not isinstance(msg, dict):
+        if isinstance(ret, dict):
             if (
                 LAST_COMMAND == "require"
                 and LAST_COMMAND_SUCCESSFUL
@@ -207,7 +207,6 @@ def process_command_from_vim(obj):
         end_time = time.time()
         duration = end_time - start_time
         duration = int(duration * 1000)
-        _debug(duration)
         do_async = False
         if duration > TIMEOUT_MS:
             do_async = True
