@@ -152,7 +152,7 @@ function! s:create_or_get_scratch(project_key) abort
 
   let buf_name = "SCRATCH_".a:project_key
   execute g:plasmaplace_scratch_split_cmd . " " . buf_name
-  setlocal filetype=clojure
+  " setlocal filetype=clojure
   setlocal bufhidden=
   setlocal buflisted
   setlocal buftype=nofile
