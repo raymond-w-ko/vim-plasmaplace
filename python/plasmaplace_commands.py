@@ -237,8 +237,8 @@ def require(ns, reload_level):
 def cljfmt(code):
     require_cljfmt_code = "(require 'cljfmt.core)"
     ret = Eval(require_cljfmt_code, eval_value=False, echo_code=True, silent=True)
-    if not ret.success:
-        return ret.to_scratch_buf()
+    # if not ret.success:
+    #     return ret.to_scratch_buf()
 
     template = "(with-out-str (print (cljfmt.core/reformat-string %s nil)))"
     code = template % (code,)
