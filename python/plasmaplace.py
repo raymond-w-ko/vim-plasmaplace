@@ -8,15 +8,16 @@ import select
 import threading
 import atexit
 import time
+import queue
 from queue import Queue
 
 from plasmaplace_utils import bencode, bdecode, get_shadow_browser_target
+from plasmaplace_exiter import exit_plasmaplace, EXIT_CODE_QUEUE
 import plasmaplace_commands
 
 PROJECT_PATH = os.getcwd()
 PROJECT_TYPE = None
 SOCKET = None
-SOCKET_FILE = None
 TIMEOUT_MS = 4096
 
 TO_REPL = Queue()
@@ -39,11 +40,14 @@ def _write_to_nrepl_loop():
     global TO_REPL
     global SOCKET
 
-    while True:
-        payload = TO_REPL.get(block=True)
-        # _debug(payload)
-        payload = bencode(payload)
-        SOCKET.sendall(bytes(payload, "UTF-8"))
+    try:
+        while True:
+            payload = TO_REPL.get(block=True)
+            # _debug(payload)
+            payload = bencode(payload)
+            SOCKET.sendall(bytes(payload, "UTF-8"))
+    except:  # noqa
+        exit_plasmaplace(1)
 
 
 def _write_to_vim_loop():
@@ -60,11 +64,11 @@ def _write_to_vim_loop():
 
 
 def _read():
-    global SOCKET_FILE
+    global SOCKET
     try:
-        return bdecode(SOCKET_FILE)
+        return bdecode(SOCKET)
     except:  # noqa
-        sys.exit(1)
+        exit_plasmaplace(1)
 
 
 def to_vim(msg_id: int, msg, do_async=False):
@@ -81,7 +85,6 @@ def to_vim(msg_id: int, msg, do_async=False):
 def init(port_file_path, project_type, timeout_ms):
     global PROJECT_TYPE
     global SOCKET
-    global SOCKET_FILE
     global TIMEOUT_MS
 
     PROJECT_TYPE = project_type
@@ -92,7 +95,6 @@ def init(port_file_path, project_type, timeout_ms):
     SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     SOCKET.connect(("localhost", port))
     SOCKET.setblocking(1)
-    SOCKET_FILE = SOCKET.makefile(encoding=None, mode="rb")
 
     t1 = threading.Thread(target=_write_to_nrepl_loop, daemon=True)
     t1.daemon = True
@@ -146,15 +148,25 @@ def switch_to_clojurescript_repl(out):
         out += [";; switched to shadow-cljs nREPL"]
 
 
-def loop():
+def processing_loop():
     input_rlist = [sys.stdin]
     while True:
-        rlist, _, _ = select.select(input_rlist, [], [])
+        rlist, _, _ = select.select(input_rlist, [], [], 10)
         for obj in rlist:
             if obj == sys.stdin:
                 line = sys.stdin.readline()
                 obj = json.loads(line)
                 process_command_from_vim(obj)
+
+
+def main_thread_loop():
+    while True:
+        try:
+            code = EXIT_CODE_QUEUE.get(block=True, timeout=10)
+            # this only works in the main thread
+            sys.exit(code)
+        except queue.Empty:
+            pass
 
 
 LAST_COMMAND = ""
@@ -182,7 +194,7 @@ def process_command_from_vim(obj):
             TO_REPL.put({"op": "close", "session": session_id})
         to_vim(msg_id, {"lines": []})
     elif verb == "exit":
-        sys.exit(0)
+        exit_plasmaplace(0)
     else:
         start_time = time.time()
 
@@ -218,8 +230,13 @@ def process_command_from_vim(obj):
 
 def main(port_file_path, project_type, timeout_ms):
     init(port_file_path, project_type, timeout_ms)
+
+    t1 = threading.Thread(target=processing_loop, daemon=True)
+    t1.daemon = True
+    t1.start()
+
     try:
-        loop()
+        main_thread_loop()
     except:  # noqa
         cleanup_root_session()
 

@@ -1,5 +1,6 @@
 import re
 import os
+from plasmaplace_exiter import exit_plasmaplace
 
 
 def bencode(value):
@@ -22,37 +23,45 @@ def bencode(value):
         raise TypeError("can't bencode " + value)
 
 
-def bdecode(f, char=None):
+def read_socket(sock, n):
+    data = sock.recv(n)
+    if len(data) == 0:
+        exit_plasmaplace(1)
+    else:
+        return data
+
+
+def bdecode(sock, char=None):
     if char is None:
-        char = f.read(1)
+        char = read_socket(sock, 1)
     if char == b"l":
         _list = []
         while True:
-            char = f.read(1)
+            char = read_socket(sock, 1)
             if char == b"e":
                 return _list
-            _list.append(bdecode(f, char))
+            _list.append(bdecode(sock, char))
     elif char == b"d":
         d = {}
         while True:
-            char = f.read(1)
+            char = read_socket(sock, 1)
             if char == b"e":
                 return d
-            key = bdecode(f, char)
-            d[key] = bdecode(f)
+            key = bdecode(sock, char)
+            d[key] = bdecode(sock)
     elif char == b"i":
         i = b""
         while True:
-            char = f.read(1)
+            char = read_socket(sock, 1)
             if char == b"e":
                 return int(i.decode("utf-8"))
             i += char
     elif char.isdigit():
         i = int(char)
         while True:
-            char = f.read(1)
+            char = read_socket(sock, 1)
             if char == b":":
-                return f.read(i).decode("utf-8")
+                return read_socket(sock, i).decode("utf-8")
             i = 10 * i + int(char)
     elif char == "":
         raise EOFError("unexpected end of bdecode data")

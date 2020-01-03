@@ -1,8 +1,10 @@
 import sys
 import uuid
+import time
 import threading
 import ast
 from queue import Queue
+from plasmaplace_exiter import exit_plasmaplace
 
 
 TO_REPL = None
@@ -26,24 +28,42 @@ def set_globals(_to_repl, _root_session, __read):
     _read = __read
 
 
+def _keepalive_loop():
+    while True:
+        payload = {
+            "op": "ls-sessions",
+            "id": "keepalive",
+        }
+        # _debug("ping")
+        TO_REPL.put(payload)
+        time.sleep(1)
+
+
 def _repl_read_dispatch_loop():
     try:
         while True:
             msg = _read()
             if not msg:
-                sys.exit(1)
+                exit_plasmaplace(1)
             if not isinstance(msg, dict):
                 continue
             id = msg["id"]
+            if id == "keepalive":
+                # _debug("pong")
+                continue
             Eval.dispatch_msg(id, msg)
     except:  # noqa
-        sys.exit(1)
+        exit_plasmaplace(1)
 
 
 def start_repl_read_dispatch_loop():
-    t1 = threading.Thread(target=_repl_read_dispatch_loop, daemon=True)
+    t1 = threading.Thread(target=_keepalive_loop, daemon=True)
     t1.daemon = True
     t1.start()
+
+    t2 = threading.Thread(target=_repl_read_dispatch_loop, daemon=True)
+    t2.daemon = True
+    t2.start()
 
 
 def literal_eval(value):
