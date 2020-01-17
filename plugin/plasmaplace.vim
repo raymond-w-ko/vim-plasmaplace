@@ -157,6 +157,7 @@ function! s:create_or_get_scratch(project_key) abort
   setlocal buflisted
   setlocal buftype=nofile
   setlocal noswapfile
+  setlocal ft=plasmaplace
   call s:set_scratch_window_options()
   let bnum = bufnr("%")
   call setbufvar(bnum, "scrollfix_disabled", 1)
@@ -165,6 +166,7 @@ function! s:create_or_get_scratch(project_key) abort
   nnoremap <buffer> q :q<CR>
   nnoremap <buffer> gq :q<CR>
   " nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
+  runtime! syntax/plasmaplace.vim
   let s:repl_scratch_buffers[a:project_key] = bnum
   wincmd p
   redraw
