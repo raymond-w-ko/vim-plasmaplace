@@ -143,12 +143,12 @@ class Eval:
                         self.value += value.split("\n")
                 elif "err" in msg:
                     self.err_happened = True
-                    self.errors = [";; ERR:"]
+                    self.errors += [";; ERR:"]
                     self.errors += msg["err"].split("\n")
                     self.success = False
                 elif "ex" in msg:
                     self.ex_happened = True
-                    self.errors = [";; EX:"]
+                    self.errors += [";; EX:"]
                     self.errors += msg["ex"].split("\n")
                     self.success = False
                 else:
@@ -170,7 +170,7 @@ class Eval:
             else:
                 if "value" in msg:
                     value = msg["value"]
-                    self.errors = [";; STACKTRACE:"]
+                    self.errors += [";; STACKTRACE:"]
                     self.errors += value.split("\n")
                 else:
                     # ignore silent due to probably an error or unhandled case
