@@ -24,11 +24,17 @@ def bencode(value):
 
 
 def read_socket(sock, n):
-    data = sock.recv(n)
-    if len(data) == 0:
-        exit_plasmaplace(1)
-    else:
-        return data
+    data = b""
+    rem = n
+    while True:
+        new_data = sock.recv(rem)
+        data += new_data
+        if len(new_data) == 0:
+            if len(data) == 0:
+                exit_plasmaplace(1)
+            return data
+        else:
+            rem -= len(new_data)
 
 
 def bdecode(sock, char=None):
