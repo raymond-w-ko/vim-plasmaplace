@@ -142,13 +142,15 @@ class Eval:
                     if isinstance(value, str):
                         self.value += value.split("\n")
                 elif "err" in msg:
+                    if not self.err_happened:
+                        self.errors += [";; ERR:"]
                     self.err_happened = True
-                    self.errors += [";; ERR:"]
                     self.errors += msg["err"].split("\n")
                     self.success = False
                 elif "ex" in msg:
+                    if not self.ex_happened:
+                        self.errors += [";; EX:"]
                     self.ex_happened = True
-                    self.errors += [";; EX:"]
                     self.errors += msg["ex"].split("\n")
                     self.success = False
                 else:
