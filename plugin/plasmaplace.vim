@@ -379,7 +379,6 @@ function! s:Macroexpand(type, ...) abort
   endif
 
   let ns = s:qsym(plasmaplace#ns())
-
   call s:repl(["macroexpand", ns, @@])
 
   let &selection = sel_save
@@ -399,6 +398,7 @@ function! s:Macroexpand1(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
+  let ns = s:qsym(plasmaplace#ns())
   call s:repl(["macroexpand1", ns, @@])
 
   let &selection = sel_save
