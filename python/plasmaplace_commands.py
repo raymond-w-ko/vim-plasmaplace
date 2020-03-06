@@ -102,7 +102,7 @@ class Eval:
         self.err_stream = StreamBuffer(";; ERR:")
         self.ex_stream = StreamBuffer(";; EX:")
         self.st_stream = StreamBuffer(";; STACK TRACE:")
-        self.unknown_stream = StreamBuffer(";; UNKOWN REPL RESPONSE:")
+        self.unknown_stream = StreamBuffer(";; UNKNOWN REPL RESPONSE:")
 
         self.raw_value = None
 
