@@ -5,6 +5,7 @@ import threading
 import ast
 from queue import Queue
 from plasmaplace_exiter import exit_plasmaplace
+from plasmaplace_utils import StreamBuffer
 
 
 TO_REPL = None
@@ -67,6 +68,8 @@ def start_repl_read_dispatch_loop():
 
 
 def literal_eval(value):
+    if value is None or value == "":
+        return None
     if value == "nil":
         return None
     else:
@@ -93,12 +96,14 @@ class Eval:
 
         self.success = False
         self.ex_happened = False
-        self.err_happened = False
 
-        self.errors = []
-        self.out = []
-        self.unknown = []
-        self.value = []
+        self.value_stream = StreamBuffer(";; VALUE:")
+        self.out_stream = StreamBuffer(";; OUT:")
+        self.err_stream = StreamBuffer(";; ERR:")
+        self.ex_stream = StreamBuffer(";; EX:")
+        self.st_stream = StreamBuffer(";; STACK TRACE:")
+        self.unknown_stream = StreamBuffer(";; UNKOWN REPL RESPONSE:")
+
         self.raw_value = None
 
         self._eval()
@@ -133,30 +138,24 @@ class Eval:
                 break
             else:
                 if "out" in msg:
-                    self.out.append(msg["out"])
+                    self.out_stream.append(msg["out"])
                 elif "value" in msg:
-                    value = msg["value"]
-                    if self.eval_value:
-                        value = literal_eval(value)
-                    self.raw_value = value
-                    if isinstance(value, str):
-                        self.value += value.split("\n")
+                    self.value_stream.append(msg["value"])
                 elif "err" in msg:
-                    if not self.err_happened:
-                        self.errors += [";; ERR:"]
-                    self.err_happened = True
-                    self.errors += msg["err"].split("\n")
+                    self.err_stream.append(msg["err"])
                     self.success = False
                 elif "ex" in msg:
-                    if not self.ex_happened:
-                        self.errors += [";; EX:"]
-                    self.ex_happened = True
-                    self.errors += msg["ex"].split("\n")
                     self.success = False
+                    self.ex_happened = True
+                    self.ex_stream.append(msg["ex"])
                 else:
                     # ignore silent due to probably an error or unhandled case
-                    self.unknown += [";; UNKNOWN REPL RESPONSE"]
-                    self.unknown += [str(msg)]
+                    self.unknown_stream.append(str(msg))
+
+        if self.eval_value:
+            value = self.value_stream.get_value()
+            value = literal_eval(value)
+            self.raw_value = value
 
     def _fetch_stacktrace(self):
         if not self.ex_happened:
@@ -172,12 +171,10 @@ class Eval:
             else:
                 if "value" in msg:
                     value = msg["value"]
-                    self.errors += [";; STACKTRACE:"]
-                    self.errors += value.split("\n")
+                    self.st_stream.append(value)
                 else:
                     # ignore silent due to probably an error or unhandled case
-                    self.unknown += [";; UNKNOWN REPL RESPONSE"]
-                    self.unknown += [str(msg)]
+                    self.unknown_stream.append(str(msg))
 
     def to_scratch_buf(self):
         lines = []
@@ -187,15 +184,15 @@ class Eval:
             ]
         if self.echo_code:
             lines += self.code.split("\n")
+        lines += self.unknown_stream.get_lines()
         if not self.silent:
-            if len(self.out) > 0:
-                lines += [";; OUT"]
-                lines += "".join(self.out).split("\n")
-            if self.value:
-                lines += [";; VALUE"]
-                lines += self.value
-            lines += self.unknown
-        lines += self.errors
+            lines += self.out_stream.get_lines()
+            if self.eval_value:
+                lines += self.raw_value.split("\n")
+            else:
+                lines += self.value_stream.get_lines()
+        lines += self.err_stream.get_lines()
+        lines += self.st_stream.get_lines()
         return {"lines": lines, "ex_happened": self.ex_happened}
 
     def to_value(self):
