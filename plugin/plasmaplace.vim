@@ -178,7 +178,7 @@ function! plasmaplace#__job_callback(ch, msg) abort
     let ch_id = s:ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
     call s:handle_message(project_key, a:msg)
-  catch E716
+  catch /E716/
     " No-op if data isn't ready
   endtry
 endfunction
