@@ -520,7 +520,8 @@ function! s:RunTests(bang, count, ...) abort
   endif
 
   let code = join(expr, ' ')
-  call s:repl(["eval", s:qsym("user"), code])
+  let code = printf("(with-out-str %s)", code)
+  call s:repl(["run_tests", s:qsym("user"), code])
 endfunction
 
 """"""""""""""""""""""""""""""""""""""""

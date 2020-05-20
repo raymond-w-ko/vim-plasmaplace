@@ -226,6 +226,16 @@ def _eval(ns, code):
     return ret.to_scratch_buf()
 
 
+def run_tests(ns, code):
+    if ns is not None:
+        ret = switch_to_ns(ns)
+        if not ret.success:
+            return ret.to_scratch_buf()
+
+    ret = Eval(code, echo_code=True, eval_value=True)
+    return ret.to_scratch_buf()
+
+
 def macroexpand(ns, code):
     if ns:
         ret = switch_to_ns(ns)
@@ -268,6 +278,7 @@ def cljfmt(code):
 dispatcher = {}
 dispatcher["doc"] = doc
 dispatcher["eval"] = _eval
+dispatcher["run_tests"] = run_tests
 dispatcher["macroexpand"] = macroexpand
 dispatcher["macroexpand1"] = macroexpand1
 dispatcher["require"] = require
