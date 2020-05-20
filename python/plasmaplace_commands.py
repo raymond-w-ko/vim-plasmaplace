@@ -187,7 +187,7 @@ class Eval:
         lines += self.unknown_stream.get_lines()
         if not self.silent:
             lines += self.out_stream.get_lines()
-            if self.eval_value:
+            if self.eval_value and self.raw_value is not None:
                 lines += self.raw_value.split("\n")
             else:
                 lines += self.value_stream.get_lines()
