@@ -222,7 +222,7 @@ function! s:append_lines_to_scratch(project_key, lines, skip_center) abort
   let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
   call appendbufline(scratch_bufnr, "$", a:lines)
   if !a:skip_center
-    call plasmaplace#center_scratch_buf( scratch_bufnr, top_line_num)
+    call plasmaplace#center_scratch_buf(scratch_bufnr, top_line_num)
   endif
 
   " restore mode and position
