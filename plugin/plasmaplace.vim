@@ -104,10 +104,10 @@ endfunction
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 function! s:get_project_type(path) abort
-  if filereadable(a:path . "/project.clj")
-    return "default"
-  elseif filereadable(a:path . "/shadow-cljs.edn")
+  if filereadable(a:path . "/shadow-cljs.edn")
     return "shadow-cljs"
+  elseif filereadable(a:path . "/project.clj")
+    return "default"
   elseif filereadable(a:path . "/deps.edn")
     return "default"
   endif
@@ -412,6 +412,9 @@ function! s:Require(bang, echo, ns) abort
   if expand("%:e") ==# "cljs" | return | endif
   if expand("%") ==# "project.clj" | return | endif
   if expand("%") ==# "linter.cljc" | return | endif
+
+  let project_path = s:get_project_path()
+  if s:get_project_type(project_path) == "shadow-cljs" | return | endif
 
   if &autowrite || &autowriteall
     silent! wall
