@@ -449,6 +449,8 @@ function! s:Doc(symbol) abort
   let symbol = substitute(symbol, '\\?', "?", "g")
   let symbol = substitute(symbol, '\\!', "!", "g")
   let symbol = substitute(symbol, '\\\*', "*", "g")
+  let symbol = substitute(symbol, '\\<', "<", "g")
+  let symbol = substitute(symbol, '\\>', ">", "g")
   let ns = plasmaplace#ns()
   let ns = s:qsym(ns)
   call s:repl(["doc", ns, symbol])
