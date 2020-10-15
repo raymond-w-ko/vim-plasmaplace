@@ -448,7 +448,7 @@ function! s:Doc(symbol) abort
   let symbol = a:symbol
   let symbol = substitute(symbol, '\\?', "?", "g")
   let symbol = substitute(symbol, '\\!', "!", "g")
-  let symbol = substitute(symbol, '\\\*', "*", "g")
+  let symbol = substitute(symbol, '\\\*', "*", "g") " extra backslash not an error
   let symbol = substitute(symbol, '\\<', "<", "g")
   let symbol = substitute(symbol, '\\>', ">", "g")
   let ns = plasmaplace#ns()
