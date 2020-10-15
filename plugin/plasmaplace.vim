@@ -19,7 +19,7 @@ if !exists("g:plasmaplace_scratch_split_cmd")
   let g:plasmaplace_scratch_split_cmd = "botright vnew"
 endif
 if !exists("g:plasmaplace_command_timeout_ms")
-  let g:plasmaplace_command_timeout_ms = 8192
+  let g:plasmaplace_command_timeout_ms = 5000
 endif
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
