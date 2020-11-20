@@ -82,7 +82,7 @@ def get_shadow_primary_target(project_path):
     code = code.replace("\n", " ")
     idx = code.index(":builds")
     code = code[idx:]
-    m = re.search(r"\s*(\:\w+)\s*\{\:target\s+\:(browser|node-library).*", code)
+    m = re.search(r"\s*(\:[a-zA-Z0-9\-]+)\s*\{\:target\s+\:(browser|node-library).*", code)
     if m is None:
         return None
     else:
