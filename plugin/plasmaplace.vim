@@ -476,7 +476,14 @@ function! s:RunTests(bang, count, ...) abort
     silent! wall
   endif
   let ext = expand('%:e')
-  if ext ==# "cljs"
+  if ext ==# "cljc"
+    let project_path = s:get_project_path()
+    if s:get_project_type(project_path) == "shadow-cljs"
+      let test_ns = "cljs.test"
+    else
+      let test_ns = "clojure.test"
+    endif
+  elseif ext ==# "cljs"
     let test_ns = "cljs.test"
   else
     let test_ns = "clojure.test"
