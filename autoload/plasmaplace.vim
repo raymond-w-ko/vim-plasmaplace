@@ -117,7 +117,8 @@ endfunction
 
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
+" init and reset functions
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 function! plasmaplace#reset_caches() abort
   let s:project_type_cache = {}
   let s:project_path_cache = {}
