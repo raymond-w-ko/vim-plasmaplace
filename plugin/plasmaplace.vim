@@ -456,14 +456,10 @@ endfunction
 function! s:get_current_buffer_contents_as_string() abort
   let tmp = []
   for line in getline(1, '$')
-    let line = substitute(line, '\', '\\\\', 'g')
     call add(tmp, line)
   endfor
-  let escaped_buffer_contents = join(tmp, '\n')
-
-  " Take care of escaping quotes
-  let escaped_buffer_contents = substitute(escaped_buffer_contents, '"', '\\"', 'g')
-  return '"' . escaped_buffer_contents . '"'
+  let contents = join(tmp, "\n")
+  return plasmaplace#pr_str(contents)
 endfunction
 
 function! s:replace_buffer(content) abort
