@@ -38,61 +38,10 @@ let s:last_eval_form = ""
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " utils
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" turn in memory string to (read)-able string
-function! s:str(string) abort
-  return '"' . escape(a:string, '"\') . '"'
-endfunction
-
-" turn in memory string to python (read)-able string, newlines allowed
-function! s:pystr(string) abort
-  return '"""' . escape(a:string, '"\') . '"""'
-endfunction
-
-" quote a clojure symbol
-function! s:qsym(symbol) abort
-  if a:symbol =~# '^[[:alnum:]?*!+/=<>.:-]\+$'
-    return "'".a:symbol
-  else
-    return '(symbol '.s:str(a:symbol).')'
-  endif
-endfunction
-
-" convert path to namespace
-function! s:to_ns(path) abort
-  return tr(substitute(a:path, '\.\w\+$', '', ''), '\/_', '..-')
-endfunction
-
-" get the namespace symbol of the current buffer
-function! plasmaplace#ns() abort
-  let buffer = "%"
-  let head = getbufline(buffer, 1, 50)
-  let blank = '^\s*\%(;.*\)\=$'
-  call filter(head, 'v:val !~# blank')
-  let keyword_group = '[A-Za-z0-9_?*!+/=<>.-]'
-  let lines = join(head[0:49], ' ')
-  let lines = substitute(lines, '"\%(\\.\|[^"]\)*"\|\\.', '', 'g')
-  let lines = substitute(lines, '\^\={[^{}]*}', '', '')
-  let lines = substitute(lines, '\^:'.keyword_group.'\+', '', 'g')
-  let ns = matchstr(lines, '\C^(\s*\%(in-ns\s*''\|ns\s\+\)\zs'.keyword_group.'\+\ze')
-  if ns !=# ''
-    return ns
-  else
-    if buffer ==# "%"
-      let path = expand(buffer, ":p")
-    endif
-    throw "plasmaplace: could not deduce namespace of buffer: " . path
-  endif
-endfunction
-
 " get number of lines in a buffer
 function! plasmaplace#get_buffer_num_lines(buffer) abort
   let numlines = py3eval('len(vim.buffers[' . a:buffer . '])')
   return numlines
-endfunction
-
-" get channel ID number from channel object
-function! s:ch_get_id(ch) abort
-  let id = substitute(a:ch, '^channel \(\d\+\) \(open\|closed\)$', '\1', '')
 endfunction
 
 function! s:echo_warning(msg)
@@ -102,41 +51,6 @@ function! s:echo_warning(msg)
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-function! s:get_project_type(path) abort
-  if filereadable(a:path . "/shadow-cljs.edn")
-    return "shadow-cljs"
-  elseif filereadable(a:path . "/project.clj")
-    return "default"
-  elseif filereadable(a:path . "/deps.edn")
-    return "default"
-  endif
-  return 0
-endfunction
-
-function! s:get_project_path() abort
-  let path = expand("%:p:h")
-  let prev_path = path
-  while 1
-    let project_type = s:get_project_type(path)
-    if type(project_type) == v:t_string
-      return path
-    endif
-    let prev_path = path
-    let path = fnamemodify(path, ':h')
-    if path == prev_path
-      throw "plasmaplace: could not determine project directory"
-    endif
-  endwhile
-endfunction
-
-function! s:get_project_key() abort
-  let project_path = s:get_project_path()
-  let tokens = split(project_path, '\v\\|\/')
-  let token = filter(tokens, 'strlen(v:val) > 0')
-  let tokens = reverse(tokens)
-  return join(tokens, "_")
-endfunction
 
 function! s:set_scratch_window_options() abort
   setlocal foldcolumn=0
@@ -175,7 +89,7 @@ endfunction
 
 function! plasmaplace#__job_callback(ch, msg) abort
   try
-    let ch_id = s:ch_get_id(a:ch)
+    let ch_id = plasmaplace#ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
     call s:handle_message(project_key, a:msg)
   catch /E716/
@@ -184,7 +98,7 @@ function! plasmaplace#__job_callback(ch, msg) abort
 endfunction
 
 function! plasmaplace#__close_callback(ch) abort
-    let ch_id = s:ch_get_id(a:ch)
+    let ch_id = plasmaplace#ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
     call remove(s:channel_id_to_project_key, ch_id)
     call remove(s:jobs, project_key)
@@ -239,8 +153,8 @@ function! s:create_or_get_job(project_key) abort
     return s:jobs[a:project_key]
   endif
 
-  let project_path = s:get_project_path()
-  let project_type = s:get_project_type(project_path)
+  let project_path = plasmaplace#get_project_path()
+  let project_type = plasmaplace#get_project_type(project_path)
 
   let port_file_candidates = [".nrepl-port", ".shadow-cljs/nrepl.port"]
   let port_file_path = 0
@@ -257,7 +171,7 @@ function! s:create_or_get_job(project_key) abort
 
   let options = {
       \ "mode": "json",
-      \ "cwd": s:get_project_path(),
+      \ "cwd": plasmaplace#get_project_path(),
       \ "callback": "plasmaplace#__job_callback",
       \ "close_cb": "plasmaplace#__close_callback",
       \ }
@@ -276,7 +190,7 @@ function! s:create_or_get_job(project_key) abort
   let s:jobs[a:project_key] = job
   let ch = job_getchannel(job)
   let s:channels[a:project_key] = ch
-  let ch_id = s:ch_get_id(ch)
+  let ch_id = plasmaplace#ch_get_id(ch)
   let s:channel_id_to_project_key[ch_id] = a:project_key
 
   let options = {"timeout": g:plasmaplace_command_timeout_ms}
@@ -285,7 +199,7 @@ function! s:create_or_get_job(project_key) abort
 endfunction
 
 function! s:repl(cmd) abort
-  let project_key = s:get_project_key()
+  let project_key = plasmaplace#get_project_key()
   let scratch = s:create_or_get_scratch(project_key)
   let job = s:create_or_get_job(project_key)
   let ch = s:channels[project_key]
@@ -356,7 +270,7 @@ function! s:EvalMotion(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let ns = s:qsym(plasmaplace#ns())
+  let ns = plasmaplace#quote(plasmaplace#ns())
   let s:last_eval_ns = ns
   let s:last_eval_form = @@
   call s:repl(["eval", s:last_eval_ns, s:last_eval_form])
@@ -378,7 +292,7 @@ function! s:Macroexpand(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let ns = s:qsym(plasmaplace#ns())
+  let ns = plasmaplace#quote(plasmaplace#ns())
   call s:repl(["macroexpand", ns, @@])
 
   let &selection = sel_save
@@ -398,7 +312,7 @@ function! s:Macroexpand1(type, ...) abort
     silent exe "normal! `[v`]y"
   endif
 
-  let ns = s:qsym(plasmaplace#ns())
+  let ns = plasmaplace#quote(plasmaplace#ns())
   call s:repl(["macroexpand1", ns, @@])
 
   let &selection = sel_save
@@ -413,8 +327,8 @@ function! s:Require(bang, echo, ns) abort
   if expand("%") ==# "project.clj" | return | endif
   if expand("%") ==# "linter.cljc" | return | endif
 
-  let project_path = s:get_project_path()
-  if s:get_project_type(project_path) == "shadow-cljs" | return | endif
+  let project_path = plasmaplace#get_project_path()
+  if plasmaplace#get_project_type(project_path) == "shadow-cljs" | return | endif
 
   if &autowrite || &autowriteall
     silent! wall
@@ -429,7 +343,7 @@ function! s:Require(bang, echo, ns) abort
   if ns ==# ""
     let ns = plasmaplace#ns()
   endif
-  let ns = s:qsym(ns)
+  let ns = plasmaplace#quote(ns)
 
   let cmd = printf("plasmaplace.Require(%s, %s)", ns, reload_level)
   call s:repl(["require", ns, reload_level])
@@ -452,7 +366,7 @@ function! s:Doc(symbol) abort
   let symbol = substitute(symbol, '\\<', "<", "g")
   let symbol = substitute(symbol, '\\>', ">", "g")
   let ns = plasmaplace#ns()
-  let ns = s:qsym(ns)
+  let ns = plasmaplace#quote(ns)
   call s:repl(["doc", ns, symbol])
   return ''
 endfunction
@@ -477,8 +391,8 @@ function! s:RunTests(bang, count, ...) abort
   endif
   let ext = expand('%:e')
   if ext ==# "cljc"
-    let project_path = s:get_project_path()
-    if s:get_project_type(project_path) == "shadow-cljs"
+    let project_path = plasmaplace#get_project_path()
+    if plasmaplace#get_project_type(project_path) == "shadow-cljs"
       let test_ns = "cljs.test"
     else
       let test_ns = "clojure.test"
@@ -534,7 +448,7 @@ function! s:RunTests(bang, count, ...) abort
 
   let code = join(expr, ' ')
   let code = printf("(with-out-str %s)", code)
-  call s:repl(["run_tests", s:qsym("user"), code])
+  call s:repl(["run_tests", plasmaplace#quote("user"), code])
 endfunction
 
 """"""""""""""""""""""""""""""""""""""""
@@ -576,7 +490,7 @@ endfunction
 """"""""""""""""""""""""""""""""""""""""
 
 function! s:Reconnect() abort
-  let project_key = s:get_project_key()
+  let project_key = plasmaplace#get_project_key()
   if has_key(s:jobs, project_key)
     let job = s:jobs[project_key]
     call job_stop(job)
