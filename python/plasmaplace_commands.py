@@ -4,64 +4,30 @@ import time
 import threading
 import ast
 from queue import Queue
-from plasmaplace_exiter import exit_plasmaplace
 from plasmaplace_utils import StreamBuffer
+from plasmaplace_io import TO_NREPL, read_nrepl_msg, _debug
 
 
-TO_REPL = None
 ROOT_SESSION = None
-_read = None
 
 
-def _debug(obj):
-    s = str(obj)
-    print(s, file=sys.stderr)
-    sys.stderr.flush()
-
-
-def set_globals(_to_repl, _root_session, __read):
-    global TO_REPL
+def set_globals(root_session):
     global ROOT_SESSION
-    global _read
-
-    TO_REPL = _to_repl
-    ROOT_SESSION = _root_session
-    _read = __read
-
-
-def _keepalive_loop():
-    while True:
-        payload = {
-            "op": "ls-sessions",
-            "id": "keepalive",
-        }
-        # _debug("ping")
-        TO_REPL.put(payload)
-        time.sleep(1)
+    ROOT_SESSION = root_session
 
 
 def _repl_read_dispatch_loop():
-    try:
-        while True:
-            msg = _read()
-            if not msg:
-                exit_plasmaplace(1)
-            if not isinstance(msg, dict):
-                continue
-            id = msg["id"]
-            if id == "keepalive":
-                # _debug("pong")
-                continue
-            Eval.dispatch_msg(id, msg)
-    except:  # noqa
-        exit_plasmaplace(1)
+    while True:
+        msg = read_nrepl_msg()
+        if not isinstance(msg, dict):
+            continue
+        msg_id = msg["id"]
+        if msg_id.startswith("keepalive-"):
+            continue
+        Eval.dispatch_msg(msg_id, msg)
 
 
 def start_repl_read_dispatch_loop():
-    t1 = threading.Thread(target=_keepalive_loop, daemon=True)
-    t1.daemon = True
-    t1.start()
-
     t2 = threading.Thread(target=_repl_read_dispatch_loop, daemon=True)
     t2.daemon = True
     t2.start()
@@ -79,6 +45,7 @@ def literal_eval(value):
 class Eval:
     instances = {}
 
+    @staticmethod
     def dispatch_msg(id, msg):
         if id in Eval.instances:
             this = Eval.instances[id]
@@ -129,28 +96,27 @@ class Eval:
             "id": self.id,
             "code": self.code,
         }
-        TO_REPL.put(payload)
+        TO_NREPL.put(payload)
         self.success = True
         while True:
             msg = self.from_repl.get()
-            # _debug(msg)
             if self.is_done_msg(msg):
                 break
+
+            if "out" in msg:
+                self.out_stream.append(msg["out"])
+            elif "value" in msg:
+                self.value_stream.append(msg["value"])
+            elif "err" in msg:
+                self.err_stream.append(msg["err"])
+                self.success = False
+            elif "ex" in msg:
+                self.success = False
+                self.ex_happened = True
+                self.ex_stream.append(msg["ex"])
             else:
-                if "out" in msg:
-                    self.out_stream.append(msg["out"])
-                elif "value" in msg:
-                    self.value_stream.append(msg["value"])
-                elif "err" in msg:
-                    self.err_stream.append(msg["err"])
-                    self.success = False
-                elif "ex" in msg:
-                    self.success = False
-                    self.ex_happened = True
-                    self.ex_stream.append(msg["ex"])
-                else:
-                    # ignore silent due to probably an error or unhandled case
-                    self.unknown_stream.append(str(msg))
+                # ignore silent due to probably an error or unhandled case
+                self.unknown_stream.append(str(msg))
 
         if self.eval_value:
             value = self.value_stream.get_value()
@@ -162,26 +128,21 @@ class Eval:
             return
 
         payload = {"op": "eval", "session": ROOT_SESSION, "id": self.id, "code": "*e"}
-        TO_REPL.put(payload)
+        TO_NREPL.put(payload)
         while True:
             msg = self.from_repl.get()
-            # _debug(msg)
             if self.is_done_msg(msg):
                 break
-            else:
-                if "value" in msg:
-                    value = msg["value"]
-                    self.st_stream.append(value)
-                else:
-                    # ignore silent due to probably an error or unhandled case
-                    self.unknown_stream.append(str(msg))
 
-    def to_scratch_buf(self):
+            if "value" in msg:
+                value = msg["value"]
+                self.st_stream.append(value)
+            else:
+                # ignore silent due to probably an error or unhandled case
+                self.unknown_stream.append(str(msg))
+
+    def extract_output(self):
         lines = []
-        if not self.silent:
-            lines += [
-                ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;"
-            ]
         if self.echo_code:
             lines += self.code.split("\n")
         lines += self.unknown_stream.get_lines()
@@ -193,10 +154,22 @@ class Eval:
                 lines += self.value_stream.get_lines()
         lines += self.err_stream.get_lines()
         lines += self.st_stream.get_lines()
+        return lines
+
+    def to_scratch_buf(self):
+        lines = self.extract_output()
+        if not self.silent:
+            lines.insert(
+                0,
+                ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;"
+            )
         return {"lines": lines, "ex_happened": self.ex_happened}
 
+    def to_popup(self):
+        lines = self.extract_output()
+        return {"popup": lines, "ex_happened": self.ex_happened}
+
     def to_value(self):
-        # _debug(self.raw_value)
         return {"value": self.raw_value, "ex_happened": self.ex_happened}
 
 
@@ -209,11 +182,11 @@ def switch_to_ns(ns):
 def doc(ns, symbol):
     ret = switch_to_ns(ns)
     if not ret.success:
-        return ret.to_scratch_buf()
+        return ret.to_popup()
 
     code = "(with-out-str (clojure.repl/doc %s))" % (symbol,)
     ret = Eval(code, eval_value=True)
-    return ret.to_scratch_buf()
+    return ret.to_popup()
 
 
 def _eval(ns, code):
@@ -223,7 +196,7 @@ def _eval(ns, code):
             return ret.to_scratch_buf()
 
     ret = Eval(code, echo_code=True)
-    return ret.to_scratch_buf()
+    return ret.to_popup()
 
 
 def run_tests(ns, code):
