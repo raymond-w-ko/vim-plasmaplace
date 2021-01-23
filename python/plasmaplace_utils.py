@@ -1,6 +1,5 @@
 import re
 import os
-from plasmaplace_exiter import exit_plasmaplace
 
 
 def bencode(value):
@@ -31,10 +30,9 @@ def read_socket(sock, n):
         data += new_data
         if len(new_data) == 0:
             if len(data) == 0:
-                exit_plasmaplace(1)
+                raise EOFError()
             return data
-        else:
-            rem -= len(new_data)
+        rem -= len(new_data)
 
 
 def bdecode(sock, char=None):
