@@ -57,6 +57,18 @@ function! plasmaplace#ch_get_id(ch) abort
 endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" vim buffer and window util functions
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+function! plasmaplace#get_buffer_num_lines(buffer) abort
+  let numlines = py3eval('len(vim.buffers[' . a:buffer . '])')
+  return numlines
+endfunction
+
+function! plasmaplace#get_win_pos(winnr)
+  return py3eval(printf('(lambda win: [win.col, win.row])(vim.windows[%s - 1])', a:winnr))
+endfunction
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " project util functions
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 let s:project_type_cache = {}

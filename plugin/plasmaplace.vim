@@ -39,11 +39,6 @@ let s:last_eval_form = ""
 " utils
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " get number of lines in a buffer
-function! plasmaplace#get_buffer_num_lines(buffer) abort
-  let numlines = py3eval('len(vim.buffers[' . a:buffer . '])')
-  return numlines
-endfunction
-
 function! s:echo_warning(msg)
   echohl WarningMsg
   echo a:msg
@@ -52,38 +47,30 @@ endfunction
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-function! s:set_scratch_window_options() abort
-  setlocal foldcolumn=0
-  setlocal nofoldenable
-  setlocal number
-endfunction
-
 " send Clojure form to REPL to (eval)
 function! s:create_or_get_scratch(project_key) abort
   if has_key(s:repl_scratch_buffers, a:project_key)
     return s:repl_scratch_buffers[a:project_key]
   endif
 
-  let buf_name = "SCRATCH_".a:project_key
-  execute g:plasmaplace_scratch_split_cmd . " " . buf_name
-  " setlocal filetype=clojure
-  setlocal bufhidden=
-  setlocal buflisted
-  setlocal buftype=nofile
-  setlocal noswapfile
-  setlocal ft=plasmaplace
-  call s:set_scratch_window_options()
-  let bnum = bufnr("%")
+  let buf_name = "/SCRATCH_" . a:project_key
+  let bnum = bufadd(buf_name)
+  call bufload(bnum)
+  call setbufvar(bnum, "&buftype", "nofile")
+  call setbufvar(bnum, "&bufhidden", "")
+  call setbufvar(bnum, "&buflisted", 1)
+  call setbufvar(bnum, "&swapfile", 0)
+  call setbufvar(bnum, "&ft", "plasmaplace")
+  call setbufvar(bnum, "&foldcolumn", 0)
+  call setbufvar(bnum, "&foldenable", 0)
+  call setbufvar(bnum, "&number", 1)
   call setbufvar(bnum, "scrollfix_disabled", 1)
   call setbufvar(bnum, "ale_enabled", 0)
   call setbufline(bnum, 1, ";; Loading Clojure REPL...")
-  nnoremap <buffer> q :q<CR>
-  nnoremap <buffer> gq :q<CR>
-  " nnoremap <buffer> <CR> :call <SID>ShowRepl()<CR>
-  runtime! syntax/plasmaplace.vim
+  " runtime! syntax/plasmaplace.vim
   let s:repl_scratch_buffers[a:project_key] = bnum
-  wincmd p
-  redraw
+  " wincmd p
+  " redraw
   return bnum
 endfunction
 
@@ -117,11 +104,28 @@ function! s:handle_message(project_key, msg) abort
   elseif has_key(a:msg, "value")
     return a:msg["value"]
   elseif has_key(a:msg, "lines")
-    let skip_center = 0
-    if has_key(a:msg, "skip_center")
-      let skip_center = a:msg["skip_center"]
-    endif
+    let skip_center = 1
     call s:append_lines_to_scratch(a:project_key, a:msg["lines"], skip_center)
+  elseif has_key(a:msg, "popup")
+    let popup_width = 90
+    let x = virtcol(".")
+    let win_x = plasmaplace#get_win_pos(winnr())[0] 
+    let offset = winwidth(".") - x
+    if win_x + offset + popup_width > &columns
+      let popup_col = "cursor-" .. (popup_width + x + 7)
+    else
+      let popup_col = "cursor+" .. (offset + 2)
+    endif
+    let winid = popup_create(a:msg["popup"], #{
+      \ pos: "botleft",
+      \ line: 0,
+      \ col: popup_col,
+      \ maxwidth: popup_width,
+      \ moved: "WORD",
+      \ border: [],
+      \ borderhighlight: ["VertSplit"],
+      \ })
+    call setwinvar(winid, '&wincolor', 'CursorLine')
   endif
 endfunction
 
@@ -135,17 +139,17 @@ function! s:append_lines_to_scratch(project_key, lines, skip_center) abort
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
   let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
   call appendbufline(scratch_bufnr, "$", a:lines)
-  if !a:skip_center
-    call plasmaplace#center_scratch_buf(scratch_bufnr, top_line_num)
-  endif
+  " if !a:skip_center
+  "   call plasmaplace#center_scratch_buf(scratch_bufnr, top_line_num)
+  " endif
 
   " restore mode and position
-  if ret_mode =~ '[vV]'
-    keepjumps normal! gv
-  elseif ret_mode =~ '[sS]'
-    exe "keepjumps normal! gv\<c-g>"
-  endif
-  keepjumps call cursor(ret_line, ret_col)
+  " if ret_mode =~ '[vV]'
+  "   keepjumps normal! gv
+  " elseif ret_mode =~ '[sS]'
+  "   exe "keepjumps normal! gv\<c-g>"
+  " endif
+  " keepjumps call cursor(ret_line, ret_col)
 endfunction
 
 function! s:create_or_get_job(project_key) abort
