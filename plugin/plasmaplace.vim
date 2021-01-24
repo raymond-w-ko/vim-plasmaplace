@@ -55,6 +55,7 @@ function! s:create_or_get_scratch(project_key) abort
 
   let buf_name = "/SCRATCH_" . a:project_key
   let bnum = bufadd(buf_name)
+  let s:repl_scratch_buffers[a:project_key] = bnum
   call bufload(bnum)
   call setbufvar(bnum, "&buftype", "nofile")
   call setbufvar(bnum, "&bufhidden", "")
@@ -68,7 +69,6 @@ function! s:create_or_get_scratch(project_key) abort
   call setbufvar(bnum, "ale_enabled", 0)
   call setbufline(bnum, 1, ";; Loading Clojure REPL...")
   " runtime! syntax/plasmaplace.vim
-  let s:repl_scratch_buffers[a:project_key] = bnum
   " wincmd p
   " redraw
   return bnum
@@ -130,26 +130,8 @@ function! s:handle_message(project_key, msg) abort
 endfunction
 
 function! s:append_lines_to_scratch(project_key, lines, skip_center) abort
-  " save for later
-  let ret_bufnr = bufnr('%')
-  let ret_mode = mode()
-  let ret_line = line('.')
-  let ret_col = col('.')
-
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
-  let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
   call appendbufline(scratch_bufnr, "$", a:lines)
-  " if !a:skip_center
-  "   call plasmaplace#center_scratch_buf(scratch_bufnr, top_line_num)
-  " endif
-
-  " restore mode and position
-  " if ret_mode =~ '[vV]'
-  "   keepjumps normal! gv
-  " elseif ret_mode =~ '[sS]'
-  "   exe "keepjumps normal! gv\<c-g>"
-  " endif
-  " keepjumps call cursor(ret_line, ret_col)
 endfunction
 
 function! s:create_or_get_job(project_key) abort
