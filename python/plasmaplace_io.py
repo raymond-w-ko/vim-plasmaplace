@@ -4,12 +4,11 @@ All sockets, input/output queues, loops go here
 import sys
 import json
 import threading
-import traceback
 import socket
 import uuid
 import time
 from queue import Queue
-from plasmaplace_utils import bencode, bdecode, get_shadow_primary_target
+from plasmaplace_utils import bencode, bdecode
 
 SOCKET = None
 TO_NREPL = Queue()
