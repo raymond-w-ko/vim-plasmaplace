@@ -18,6 +18,8 @@ from plasmaplace_io import (
     read_nrepl_msg,
     connect_to_nrepl_socket,
 )
+import plasmaplace_repl_eval
+from plasmaplace_repl_eval import ReplEval
 import plasmaplace_commands
 
 PROJECT_PATH = os.getcwd()
@@ -90,8 +92,8 @@ def process_command_from_vim(obj):
         out = [";; connected to nREPL"]
         get_existing_sessions(out)
         acquire_root_session(out)
-        plasmaplace_commands.set_globals(ROOT_SESSION)
-        plasmaplace_commands.start_repl_read_dispatch_loop()
+        ReplEval.set_root_session(ROOT_SESSION)
+        plasmaplace_repl_eval.start_repl_read_dispatch_loop()
         switch_to_clojurescript_repl(out)
         to_vim(msg_id, {"lines": out})
     elif verb == "delete_other_nrepl_sessions":
