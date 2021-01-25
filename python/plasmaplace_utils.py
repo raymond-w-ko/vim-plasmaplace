@@ -85,31 +85,3 @@ def get_shadow_primary_target(project_path):
         return None
     else:
         return m.group(1)
-
-
-class StreamBuffer:
-    def __init__(self, header):
-        self.header = header
-        self.appended_header = False
-        self.value = None
-        self.buf = []
-
-    def append(self, msg):
-        self.buf.append(msg)
-
-    def get_lines(self):
-        if len(self.buf) == 0:
-            return []
-        ret = []
-        ret.append(self.header)
-        lines = "".join(self.buf).split("\n")
-        ret += lines
-        return ret
-
-    def get_value(self):
-        if self.value:
-            return self.value
-        ret = "".join(self.buf).strip()
-
-        self.value = ret
-        return self.value
