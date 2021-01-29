@@ -3,6 +3,7 @@ Implements an isolated session that is responsible for sending a form to
 evaluate and receiving the value, output, error, exception, and stack trace.
 """
 
+import sys
 import uuid
 import ast
 import threading
@@ -195,15 +196,18 @@ class ReplEval:
 
 
 def _repl_read_dispatch_loop():
-    while True:
-        msg = read_nrepl_msg()
-        if not isinstance(msg, dict):
-            continue
-        msg_id = msg["id"]
-        if msg_id.startswith("keepalive-"):
-            continue
-        # _debug(msg)
-        ReplEval.dispatch_msg(msg_id, msg)
+    try:
+        while True:
+            msg = read_nrepl_msg()
+            if not isinstance(msg, dict):
+                continue
+            msg_id = msg["id"]
+            if msg_id.startswith("keepalive-"):
+                continue
+            # _debug(msg)
+            ReplEval.dispatch_msg(msg_id, msg)
+    except:
+        sys.exit(1)
 
 
 def start_repl_read_dispatch_loop():
