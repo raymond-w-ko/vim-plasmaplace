@@ -17,6 +17,7 @@ from plasmaplace_io import (
     to_vim,
     read_nrepl_msg,
     connect_to_nrepl_socket,
+    start_keepalive_loop
 )
 import plasmaplace_repl_eval
 from plasmaplace_repl_eval import ReplEval
@@ -96,6 +97,7 @@ def process_command_from_vim(obj):
         plasmaplace_repl_eval.start_repl_read_dispatch_loop()
         switch_to_clojurescript_repl(out)
         to_vim(msg_id, {"lines": out})
+        start_keepalive_loop()
     elif verb == "delete_other_nrepl_sessions":
         for session_id in EXISTING_SESSIONS:
             TO_NREPL.put({"op": "close", "session": session_id})
