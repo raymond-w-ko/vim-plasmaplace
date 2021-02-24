@@ -1,0 +1,57 @@
+import sys
+import json
+import select
+import subprocess
+from subprocess import Popen, PIPE, STDOUT
+import pynvim
+
+
+@pynvim.plugin
+class Plasmaplace():
+    def __init__(self, nvim):
+        self.nvim = nvim
+        self.counter = 0
+        self.msg_id = 1
+        self.job_to_process = {}
+
+    @pynvim.autocmd("BufEnter", pattern="*", eval='expand("<afile>")', sync=True)
+    def nop(self, filename):
+        pass
+
+    @pynvim.function("Plasmaplace_nvim_start_job", sync=True)
+    def start_job(self, args):
+        cmd = args[0]
+        cmd = list(map(str, cmd))
+        job_id = self.counter
+        self.counter += 1
+        p = Popen(cmd, stdout=PIPE, stdin=PIPE, stderr=PIPE, bufsize=1)
+        self.job_to_process[job_id] = p
+        return job_id
+
+    @pynvim.function("Plasmaplace_nvim_send_cmd", sync=True)
+    def send_cmd(self, args):
+        job_id, cmd, timeout = args
+        p = self.job_to_process[job_id]
+        msg_id = self.msg_id
+        self.msg_id += 1
+
+        while True:
+            msg = json.dumps([msg_id, cmd])
+            p.stdin.write(msg.encode("utf-8"))
+            p.stdin.write("\n".encode("utf-8"))
+            p.stdin.flush()
+
+            ready, _, _ = select.select([p.stdout], [], [], timeout)
+            if len(ready) == 0:
+                return {"timeout": True}
+            ret = p.stdout.readline()
+
+            if ret is None:
+                return {}
+            ret = ret.decode("utf-8")
+            if not ret:
+                return {}
+            ret_msg_id, ret = json.loads(ret)
+            if ret_msg_id != msg_id:
+                continue
+            return ret
