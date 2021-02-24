@@ -207,7 +207,7 @@ def _repl_read_dispatch_loop():
             # _debug(msg)
             ReplEval.dispatch_msg(msg_id, msg)
     except:
-        sys.exit(1)
+        pass
 
 
 def start_repl_read_dispatch_loop():
