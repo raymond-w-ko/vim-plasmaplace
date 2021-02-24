@@ -74,7 +74,7 @@ function! s:create_or_get_scratch(project_key) abort
   return bnum
 endfunction
 
-function! plasmaplace#__job_callback(ch, msg) abort
+function! plasmaplace#_job_callback(ch, msg) abort
   try
     let ch_id = plasmaplace#ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
@@ -84,7 +84,7 @@ function! plasmaplace#__job_callback(ch, msg) abort
   endtry
 endfunction
 
-function! plasmaplace#__close_callback(ch) abort
+function! plasmaplace#_close_callback(ch) abort
     let ch_id = plasmaplace#ch_get_id(a:ch)
     let project_key = s:channel_id_to_project_key[ch_id]
     call remove(s:channel_id_to_project_key, ch_id)
@@ -95,6 +95,17 @@ endfunction
 
 function! s:is_invalid_response(msg) abort
   return type(a:msg) == v:t_string && a:msg ==# ""
+endfunction
+
+function! s:close_nvim_popup()
+  if exists("w:plasmaplace_popup_win")
+    call nvim_win_close(w:plasmaplace_popup_win, v:true)
+    unlet w:plasmaplace_popup_win
+  endif
+  if exists("w:plasmaplace_popup_buf")
+    call nvim_buf_delete(w:plasmaplace_popup_buf,  {"force": v:true})
+    unlet w:plasmaplace_popup_buf
+  endif
 endfunction
 
 " a lot of the wrapper code is adapted from metakirby5/codi.vim
@@ -108,24 +119,46 @@ function! s:handle_message(project_key, msg) abort
     call s:append_lines_to_scratch(a:project_key, a:msg["lines"], skip_center)
   elseif has_key(a:msg, "popup")
     let popup_width = 90
-    let x = virtcol(".")
-    let win_x = plasmaplace#get_win_pos(winnr())[0] 
-    let offset = winwidth(".") - x
-    if win_x + offset + popup_width > &columns
-      let popup_col = "cursor-" .. (popup_width + x + 7)
+    if has("nvim")
+      let lines = a:msg["popup"]
+      " let curwin = win_getid()
+      let buf = nvim_create_buf(v:false, v:true)
+      call nvim_buf_set_lines(buf, 0, -1, v:true, lines)
+      let opts = {
+          \ "width": popup_width,
+          \ "height": len(lines),
+          \ "relative": "cursor",
+          \ "focusable": v:false,
+          \ "row": 0,
+          \ "col": 90,
+          \ "style": "minimal",
+          \ }
+      let win = nvim_open_win(buf, 0, opts)
+      let w:plasmaplace_popup_win = win
+      let w:plasmaplace_popup_buf = buf
+      call nvim_win_set_option(win, "winhl", "Normal:CursorLine")
+      autocmd CursorMoved,TabLeave,WinLeave,InsertEnter <buffer> ++once 
+          \ call s:close_nvim_popup()
     else
-      let popup_col = "cursor+" .. (offset + 2)
+      let x = virtcol(".")
+      let win_x = plasmaplace#get_win_pos(winnr())[0] 
+      let offset = winwidth(".") - x
+      if win_x + offset + popup_width > &columns
+        let popup_col = "cursor-" .. (popup_width + x + 7)
+      else
+        let popup_col = "cursor+" .. (offset + 2)
+      endif
+      let winid = popup_create(a:msg["popup"], #{
+        \ pos: "botleft",
+        \ line: 0,
+        \ col: popup_col,
+        \ maxwidth: popup_width,
+        \ moved: "WORD",
+        \ border: [],
+        \ borderhighlight: ["VertSplit"],
+        \ })
+      call setwinvar(winid, '&wincolor', 'CursorLine')
     endif
-    let winid = popup_create(a:msg["popup"], #{
-      \ pos: "botleft",
-      \ line: 0,
-      \ col: popup_col,
-      \ maxwidth: popup_width,
-      \ moved: "WORD",
-      \ border: [],
-      \ borderhighlight: ["VertSplit"],
-      \ })
-    call setwinvar(winid, '&wincolor', 'CursorLine')
   endif
 endfunction
 
@@ -155,32 +188,39 @@ function! s:create_or_get_job(project_key) abort
     throw "plasmaplace: could not determine nREPL port file"
   endif
 
-  let options = {
-      \ "mode": "json",
-      \ "cwd": plasmaplace#get_project_path(),
-      \ "callback": "plasmaplace#__job_callback",
-      \ "close_cb": "plasmaplace#__close_callback",
-      \ }
-  if 1
-    let options["err_mode"] = "raw"
-    let options["err_io"] = "file"
-    let options["err_name"] = "/tmp/plasmaplace.log"
-  else
-    let options["err_mode"] = "raw"
-    let options["err_io"] = "null"
-  endif
-  let job = job_start(
+  let cmd =
       \ ["python3", s:daemon_path,
-      \ port_file_path, project_type, g:plasmaplace_command_timeout_ms],
-      \ options)
+      \ port_file_path, project_type, g:plasmaplace_command_timeout_ms]
+  if has("nvim")
+    let job = Plasmaplace_nvim_start_job(cmd)
+  else
+    let options = {
+        \ "mode": "json",
+        \ "cwd": plasmaplace#get_project_path(),
+        \ "callback": "plasmaplace#_job_callback",
+        \ "close_cb": "plasmaplace#_close_callback",
+        \ }
+    if 1
+      let options["err_mode"] = "raw"
+      let options["err_io"] = "file"
+      let options["err_name"] = "/tmp/plasmaplace.error.log"
+    else
+      let options["err_mode"] = "raw"
+      let options["err_io"] = "null"
+    endif
+    let job = job_start(cmd, options)
+  endif
   let s:jobs[a:project_key] = job
-  let ch = job_getchannel(job)
+  if has("nvim")
+    let ch = job
+  else
+    let ch = job_getchannel(job)
+  endif
   let s:channels[a:project_key] = ch
   let ch_id = plasmaplace#ch_get_id(ch)
   let s:channel_id_to_project_key[ch_id] = a:project_key
 
-  let options = {"timeout": g:plasmaplace_command_timeout_ms}
-  let msg = ch_evalexpr(ch, ["init"], options)
+  let msg = plasmaplace#send_cmd(ch, ["init"], g:plasmaplace_command_timeout_ms)
   call s:handle_message(a:project_key, msg)
 endfunction
 
@@ -190,12 +230,11 @@ function! s:repl(cmd) abort
   let job = s:create_or_get_job(project_key)
   let ch = s:channels[project_key]
 
-  let options = {"timeout": g:plasmaplace_command_timeout_ms}
+  let timeout = g:plasmaplace_command_timeout_ms
   if a:cmd[0] == "cljfmt"
-    let options["timeout"] = 8192
+    let timeout = 8192
   endif
-  let msg = ch_evalexpr(ch, a:cmd, options)
-
+  let msg = plasmaplace#send_cmd(ch, a:cmd, timeout)
   return s:handle_message(project_key, msg)
 endfunction
 
@@ -475,7 +514,11 @@ function! s:Reconnect() abort
   let project_key = plasmaplace#get_project_key()
   if has_key(s:jobs, project_key)
     let job = s:jobs[project_key]
-    call job_stop(job)
+    if has("nvim")
+      call jobstop(job)
+    else
+      call job_stop(job)
+    endif
   endif
   call s:create_or_get_job(project_key)
 endfunction
@@ -528,8 +571,7 @@ endfunction
 
 function! s:cleanup_daemons() abort
   for [project_key, ch] in items(s:channels)
-    let options = {"timeout": g:plasmaplace_command_timeout_ms}
-    let msg = ch_evalexpr(ch, ["exit"], options)
+    call plasmaplace#send_cmd(ch, ["exit"], g:plasmaplace_command_timeout_ms)
   endfor
 endfunction
 
