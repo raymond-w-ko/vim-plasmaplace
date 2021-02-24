@@ -9,10 +9,12 @@ import threading
 import atexit
 import time
 import queue
+import traceback
 
 from plasmaplace_utils import bencode, bdecode, get_shadow_primary_target
 from plasmaplace_io import (
     _debug,
+    EXIT_SIGNAL_QUEUE,
     TO_NREPL,
     to_vim,
     read_nrepl_msg,
@@ -143,13 +145,18 @@ def main(port_file_path, project_type, timeout_ms):
 
     for line in sys.stdin:
         obj = json.loads(line)
+        _debug(obj)
         should_continue = process_command_from_vim(obj)
         if not should_continue:
             break
 
-    payload = {"op": "close", "session": ROOT_SESSION}
-    TO_NREPL.put(payload)
-
+    TO_NREPL.put({"op": "close", "session": ROOT_SESSION})
+    TO_NREPL.put("exit")
+    EXIT_SIGNAL_QUEUE.get(block=True)
+    EXIT_SIGNAL_QUEUE.get(block=True)
+    sys.exit(0)
 
 if __name__ == "__main__":
+    _debug("started")
+    _debug(sys.argv)
     main(sys.argv[1], sys.argv[2], sys.argv[3])
