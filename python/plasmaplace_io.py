@@ -13,23 +13,32 @@ from plasmaplace_utils import bencode, bdecode
 SOCKET = None
 TO_NREPL = Queue()
 TO_VIM_QUEUE = Queue()
+EXIT_SIGNAL_QUEUE = Queue()
+EXITING = False
 
 
 def _debug(obj):
-    print(str(obj), file=sys.stderr)
-    sys.stderr.flush()
+    # print(str(obj), file=sys.stderr)
+    # sys.stderr.flush()
+    with open("/tmp/plasmaplace.debug.log", "a") as f:
+        f.write(str(obj))
+        f.write("\n")
 
 
 ################################################################################
 
 
 def _write_to_nrepl_loop():
+    global EXITING
     try:
         while True:
             payload = TO_NREPL.get(block=True)
-            # _debug(payload)
-            payload = bencode(payload)
-            SOCKET.sendall(bytes(payload, "UTF-8"))
+            if payload == "exit":
+                EXIT_SIGNAL_QUEUE.put(True)
+                EXITING = True
+                break
+            enc_payload = bencode(payload)
+            SOCKET.sendall(bytes(enc_payload, "UTF-8"))
     except:
         return
 
@@ -40,6 +49,7 @@ def _write_to_nrepl_loop():
 def _write_to_vim_loop():
     while True:
         payload = TO_VIM_QUEUE.get(block=True)
+        _debug(payload)
         sys.stdout.write(json.dumps(payload))
         sys.stdout.write("\n")
         sys.stdout.flush()
@@ -96,4 +106,8 @@ def start_keepalive_loop():
 
 
 def read_nrepl_msg():
-    return bdecode(SOCKET)
+    msg = bdecode(SOCKET)
+    if EXITING:
+        EXIT_SIGNAL_QUEUE.put(True)
+        raise RuntimeError("Exiting...")
+    return msg
