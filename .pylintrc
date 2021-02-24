@@ -1,6 +1,8 @@
 [MESSAGES CONTROL]
 disable=missing-function-docstring,
         missing-module-docstring,
+        missing-class-docstring,
         too-many-instance-attributes,
         invalid-name,
-        global-statement
+        global-statement,
+        bare-except,
