@@ -10,9 +10,10 @@ import pynvim
 class Plasmaplace():
     def __init__(self, nvim):
         self.nvim = nvim
-        self.counter = 0
+        self.job_id = 0
         self.msg_id = 1
         self.job_to_process = {}
+        self.job_to_cmd = {}
 
     @pynvim.autocmd("BufEnter", pattern="*", eval='expand("<afile>")', sync=True)
     def nop(self, filename):
@@ -22,11 +23,17 @@ class Plasmaplace():
     def start_job(self, args):
         cmd = args[0]
         cmd = list(map(str, cmd))
-        job_id = self.counter
-        self.counter += 1
+        job_id = self.job_id
+        self.job_id += 1
         p = Popen(cmd, stdout=PIPE, stdin=PIPE, stderr=PIPE, bufsize=1)
         self.job_to_process[job_id] = p
         return job_id
+
+    def restart_job(self, job_id):
+        cmd = self.job_to_cmd[job_id]
+        p = Popen(cmd, stdout=PIPE, stdin=PIPE, stderr=PIPE, bufsize=1)
+        self.job_to_process[job_id] = p
+
 
     @pynvim.function("Plasmaplace_nvim_stop_job", sync=True)
     def stop_job(self, args):
@@ -40,6 +47,9 @@ class Plasmaplace():
     def send_cmd(self, args):
         job_id, cmd, timeout = args
         p = self.job_to_process[job_id]
+        is_running = p.poll() is None
+        if not is_running:
+            return {"dead": True}
         msg_id = self.msg_id
         self.msg_id += 1
 

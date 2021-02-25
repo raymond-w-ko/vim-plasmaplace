@@ -515,7 +515,7 @@ function! s:Reconnect() abort
   if has_key(s:jobs, project_key)
     let job = s:jobs[project_key]
     if has("nvim")
-      call jobstop(job)
+      call Plasmaplace_nvim_stop_job(job)
     else
       call job_stop(job)
     endif

@@ -66,6 +66,9 @@ function! plasmaplace#send_cmd(ch, cmd, timeout) abort
     if has_key(msg, "timeout")
       throw "plasmaplace: send_cmd timed out"
     endif
+    if has_key(msg, "dead")
+      call plasmaplace#_close_callback(a:ch)
+    endif
     return msg
   else
     let options = {"timeout": a:timeout}

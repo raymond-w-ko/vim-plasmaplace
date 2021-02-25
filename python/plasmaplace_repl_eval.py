@@ -131,6 +131,8 @@ class ReplEval:
                 self.success = False
                 self.ex_happened = True
                 self.ex_stream.append(msg["ex"])
+            elif "changed-namespaces" in msg:
+                pass
             else:
                 # ignore silent due to probably an error or unhandled case
                 self.unknown_stream.append(str(msg))
