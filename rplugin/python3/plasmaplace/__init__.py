@@ -28,6 +28,14 @@ class Plasmaplace():
         self.job_to_process[job_id] = p
         return job_id
 
+    @pynvim.function("Plasmaplace_nvim_stop_job", sync=True)
+    def stop_job(self, args):
+        job_id = args[0]
+        if job_id in self.job_to_process:
+            p = self.job_to_process[job_id]
+            p.kill()
+            del self.job_to_process[job_id]
+
     @pynvim.function("Plasmaplace_nvim_send_cmd", sync=True)
     def send_cmd(self, args):
         job_id, cmd, timeout = args
