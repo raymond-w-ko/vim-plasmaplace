@@ -120,6 +120,7 @@ function! s:handle_message(project_key, msg) abort
   elseif has_key(a:msg, "popup")
     let popup_width = 90
     if has("nvim")
+      call s:close_nvim_popup()
       let lines = a:msg["popup"]
       " let curwin = win_getid()
       let buf = nvim_create_buf(v:false, v:true)
@@ -137,7 +138,7 @@ function! s:handle_message(project_key, msg) abort
       let w:plasmaplace_popup_win = win
       let w:plasmaplace_popup_buf = buf
       call nvim_win_set_option(win, "winhl", "Normal:CursorLine")
-      autocmd CursorMoved,TabLeave,WinLeave,InsertEnter <buffer> ++once 
+      autocmd TabLeave,WinLeave <buffer> ++once 
           \ call s:close_nvim_popup()
     else
       let x = virtcol(".")
