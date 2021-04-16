@@ -133,6 +133,7 @@ function! s:handle_message(project_key, msg) abort
           \ "row": 0,
           \ "col": 90,
           \ "style": "minimal",
+          \ "border": "solid",
           \ }
       let win = nvim_open_win(buf, 0, opts)
       let w:plasmaplace_popup_win = win
