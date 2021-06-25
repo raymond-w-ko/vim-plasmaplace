@@ -70,7 +70,6 @@ def setup_repl(out):
     f = plasmaplace_commands.dispatcher["eval"]
 
     if PROJECT_TYPE == "shadow-cljs":
-
         shadow_primary_target = get_shadow_primary_target(PROJECT_PATH)
         if shadow_primary_target:
             code = "(shadow/nrepl-select %s)" % (shadow_primary_target)
@@ -82,7 +81,9 @@ def setup_repl(out):
             code = "(shadow/node-repl)"
             f(None, code)
     else:
-        f(None, "(in-ns user)")
+        code = "(in-ns user)"
+        out += [code]
+        f(None, code)
 
 
 def process_command_from_vim(obj):
