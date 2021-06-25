@@ -64,12 +64,12 @@ def acquire_root_session(out):
     out += [";; current session: " + ROOT_SESSION]
 
 
-def switch_to_clojurescript_repl(out):
+def setup_repl(out):
     global PROJECT_TYPE
     global PROJECT_PATH
+    f = plasmaplace_commands.dispatcher["eval"]
 
     if PROJECT_TYPE == "shadow-cljs":
-        f = plasmaplace_commands.dispatcher["eval"]
 
         shadow_primary_target = get_shadow_primary_target(PROJECT_PATH)
         if shadow_primary_target:
@@ -81,6 +81,8 @@ def switch_to_clojurescript_repl(out):
             out += [";; DEFAULTING to (shadow/node-repl)"]
             code = "(shadow/node-repl)"
             f(None, code)
+    else:
+        f(None, "(in-ns user)")
 
 
 def process_command_from_vim(obj):
@@ -97,7 +99,7 @@ def process_command_from_vim(obj):
         acquire_root_session(out)
         ReplEval.set_root_session(ROOT_SESSION)
         plasmaplace_repl_eval.start_repl_read_dispatch_loop()
-        switch_to_clojurescript_repl(out)
+        setup_repl(out)
         to_vim(msg_id, {"lines": out})
         start_keepalive_loop()
     elif verb == "delete_other_nrepl_sessions":
@@ -155,6 +157,7 @@ def main(port_file_path, project_type, timeout_ms):
     EXIT_SIGNAL_QUEUE.get(block=True)
     EXIT_SIGNAL_QUEUE.get(block=True)
     sys.exit(0)
+
 
 if __name__ == "__main__":
     _debug("started")
