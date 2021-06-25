@@ -1,6 +1,7 @@
 """
 All sockets, input/output queues, loops go here
 """
+import os
 import sys
 import json
 import threading
@@ -33,14 +34,19 @@ def _write_to_nrepl_loop():
     try:
         while True:
             payload = TO_NREPL.get(block=True)
+            _debug(payload)
             if payload == "exit":
+                _debug("EXIT_SIGNAL_QUEUE True")
                 EXIT_SIGNAL_QUEUE.put(True)
                 EXITING = True
                 break
             enc_payload = bencode(payload)
             SOCKET.sendall(bytes(enc_payload, "UTF-8"))
     except:
-        return
+        _debug("EXIT_SIGNAL_QUEUE True")
+        EXIT_SIGNAL_QUEUE.put(True)
+        EXITING = True
+        os._exit(1)
 
 
 ################################################################################
