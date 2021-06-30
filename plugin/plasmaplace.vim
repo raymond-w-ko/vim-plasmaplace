@@ -115,7 +115,10 @@ function! s:handle_message(project_key, msg) abort
   elseif has_key(a:msg, "value")
     return a:msg["value"]
   elseif has_key(a:msg, "lines")
-    let skip_center = 1
+    let skip_center = 0
+    if has_key(a:msg, "skip_center")
+      let skip_center = a:msg["skip_center"]
+    endif
     call s:append_lines_to_scratch(a:project_key, a:msg["lines"], skip_center)
   elseif has_key(a:msg, "popup")
     let popup_width = 90
@@ -166,7 +169,12 @@ endfunction
 
 function! s:append_lines_to_scratch(project_key, lines, skip_center) abort
   let scratch_bufnr = s:repl_scratch_buffers[a:project_key]
+  let top_line_num = plasmaplace#get_buffer_num_lines(scratch_bufnr) + 1
   call appendbufline(scratch_bufnr, "$", a:lines)
+
+  if !a:skip_center
+    call plasmaplace#center_scratch_buf(scratch_bufnr, top_line_num)
+  endif
 endfunction
 
 function! s:create_or_get_job(project_key) abort
