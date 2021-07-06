@@ -74,6 +74,9 @@ function! s:create_or_get_scratch(project_key) abort
   return bnum
 endfunction
 
+fun! s:set_scratch_window_options() abort
+endfun
+
 function! plasmaplace#_job_callback(ch, msg) abort
   try
     let ch_id = plasmaplace#ch_get_id(a:ch)
