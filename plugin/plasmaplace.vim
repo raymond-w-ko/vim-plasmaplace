@@ -540,6 +540,12 @@ function! s:DeleteOtherNreplSessions() abort
   call s:repl(["delete_other_nrepl_sessions"])
 endfunction
 
+fun! <SID>open_scratch_buf_split() abort
+  let project_key = plasmaplace#get_project_key()
+  let buf_name = "/SCRATCH_" . project_key
+  exe "vertical botright split " . buf_name
+endf
+
 """"""""""""""""""""""""""""""""""""""""
 
 function! s:setup_commands() abort
@@ -580,6 +586,8 @@ function! s:setup_keybinds() abort
 
   " tests
   nmap <buffer> cpr :RunTests<CR>
+
+  nnoremap <localleader>s :call <SID>open_scratch_buf_split()<CR>
 endfunction
 
 function! s:cleanup_daemons() abort

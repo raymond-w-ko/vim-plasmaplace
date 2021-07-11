@@ -21,9 +21,10 @@ EXITING = False
 def _debug(obj):
     # print(str(obj), file=sys.stderr)
     # sys.stderr.flush()
-    with open("/tmp/plasmaplace.debug.log", "a") as f:
-        f.write(str(obj))
-        f.write("\n")
+    # with open("/tmp/plasmaplace.debug.log", "a") as f:
+    #     f.write(str(obj))
+    #     f.write("\n")
+    pass
 
 
 ################################################################################
@@ -42,7 +43,7 @@ def _write_to_nrepl_loop():
                 break
             enc_payload = bencode(payload)
             SOCKET.sendall(bytes(enc_payload, "UTF-8"))
-    except:
+    except:  # noqa
         _debug("EXIT_SIGNAL_QUEUE True")
         EXIT_SIGNAL_QUEUE.put(True)
         EXITING = True
