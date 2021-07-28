@@ -2,6 +2,15 @@ import re
 import os
 
 
+def _debug(obj):
+    # print(str(obj), file=sys.stderr)
+    # sys.stderr.flush()
+    with open("/tmp/plasmaplace.debug.log", "a") as f:
+        f.write(str(obj))
+        f.write("\n")
+    pass
+
+
 def bencode(value):
     if isinstance(value, int):
         return "i" + value + "e"
@@ -80,7 +89,7 @@ def get_shadow_primary_target(project_path):
     code = code.replace("\n", " ")
     idx = code.index(":builds")
     code = code[idx:]
-    m = re.search(r"\s*(\:[a-zA-Z0-9\-]+)\s*\{\:target\s+\:(browser|node-library).*", code)
+    m = re.search(r"\s*(\:[a-zA-Z0-9\-]+)\s*\{\:target\s+\:(browser|node-library|node-script).*", code)
     if m is None:
         return None
     else:

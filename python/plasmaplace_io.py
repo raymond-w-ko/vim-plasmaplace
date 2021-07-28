@@ -9,6 +9,7 @@ import socket
 import uuid
 import time
 from queue import Queue
+import plasmaplace_utils
 from plasmaplace_utils import bencode, bdecode
 
 SOCKET = None
@@ -16,18 +17,7 @@ TO_NREPL = Queue()
 TO_VIM_QUEUE = Queue()
 EXIT_SIGNAL_QUEUE = Queue()
 EXITING = False
-
-
-def _debug(obj):
-    # print(str(obj), file=sys.stderr)
-    # sys.stderr.flush()
-    # with open("/tmp/plasmaplace.debug.log", "a") as f:
-    #     f.write(str(obj))
-    #     f.write("\n")
-    pass
-
-
-################################################################################
+_debug = plasmaplace_utils._debug
 
 
 def _write_to_nrepl_loop():
@@ -114,6 +104,7 @@ def start_keepalive_loop():
 
 def read_nrepl_msg():
     msg = bdecode(SOCKET)
+    _debug(msg)
     if EXITING:
         EXIT_SIGNAL_QUEUE.put(True)
         raise RuntimeError("Exiting...")
