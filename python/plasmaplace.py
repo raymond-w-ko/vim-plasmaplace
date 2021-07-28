@@ -25,7 +25,7 @@ import plasmaplace_repl_eval
 from plasmaplace_repl_eval import ReplEval
 import plasmaplace_commands
 
-PROJECT_PATH = os.getcwd()
+PROJECT_PATH = None
 PROJECT_TYPE = None
 TIMEOUT_MS = 4096
 
@@ -69,6 +69,7 @@ def setup_repl(out):
     global PROJECT_PATH
     f = plasmaplace_commands.dispatcher["eval"]
 
+    _debug("setup REPL: " + str(PROJECT_TYPE))
     if PROJECT_TYPE == "shadow-cljs":
         shadow_primary_target = get_shadow_primary_target(PROJECT_PATH)
         if shadow_primary_target:
@@ -144,6 +145,15 @@ def process_command_from_vim(obj):
 
 
 def main(port_file_path, project_type, timeout_ms):
+    global PROJECT_PATH
+    if project_type == "shadow-cljs":
+        p = os.path.dirname(port_file_path)
+        p = os.path.join(p, "..")
+        p = os.path.normpath(p)
+        _debug(p)
+        PROJECT_PATH = p
+    else:
+        PROJECT_PATH = os.getcwd()
     init(port_file_path, project_type, timeout_ms)
 
     for line in sys.stdin:
