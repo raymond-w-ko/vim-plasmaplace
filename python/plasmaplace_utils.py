@@ -5,9 +5,9 @@ import os
 def _debug(obj):
     # print(str(obj), file=sys.stderr)
     # sys.stderr.flush()
-    with open("/tmp/plasmaplace.debug.log", "a") as f:
-        f.write(str(obj))
-        f.write("\n")
+    # with open("/tmp/plasmaplace.debug.log", "a") as f:
+    #     f.write(str(obj))
+    #     f.write("\n")
     pass
 
 
