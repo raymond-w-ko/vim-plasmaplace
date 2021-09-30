@@ -30,7 +30,7 @@ def _eval(ns, code):
             return ret.to_scratch_buf()
 
     ret = ReplEval(code, echo_code=True)
-    return ret.to_popup()
+    return ret.to_scratch_buf()
 
 
 def run_tests(ns, code):
